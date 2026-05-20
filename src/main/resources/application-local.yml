@@ -1,0 +1,13 @@
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      access: read_write

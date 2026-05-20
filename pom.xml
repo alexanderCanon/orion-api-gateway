@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.orionticket</groupId>
-	<artifactId>gateway</artifactId>
+	<artifactId>orion-api-gateway</artifactId>
 	<version>1.0.0</version>
 	<name/>
 	<description/>

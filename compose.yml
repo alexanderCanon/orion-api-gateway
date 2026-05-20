@@ -1,0 +1,58 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: orion-api-traefik
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+      - "${TRAEFIK_DASHBOARD_PORT:-8081}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    restart: unless-stopped
+    networks:
+      - orion-api-edge
+
+  orion-api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: orionticket/orion-api-gateway:${IMAGE_TAG:-latest}
+    container_name: orion-api-gateway
+    env_file:
+      - ${ORION_ENV_FILE:-.env}
+    environment:
+      SERVER_PORT: 8080
+    expose:
+      - "8080"
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.orion-api-gateway-http.rule=Host(`${GATEWAY_HOST}`)
+      - traefik.http.routers.orion-api-gateway-http.entrypoints=web
+      - traefik.http.routers.orion-api-gateway-http.middlewares=orion-api-gateway-https-redirect
+      - traefik.http.middlewares.orion-api-gateway-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.orion-api-gateway.rule=Host(`${GATEWAY_HOST}`)
+      - traefik.http.routers.orion-api-gateway.entrypoints=websecure
+      - traefik.http.routers.orion-api-gateway.tls.certresolver=letsencrypt
+      - traefik.http.services.orion-api-gateway.loadbalancer.server.port=8080
+    networks:
+      - orion-api-edge
+
+volumes:
+  traefik_letsencrypt:
+
+networks:
+  orion-api-edge:
+    name: orion-api-edge
+    driver: bridge

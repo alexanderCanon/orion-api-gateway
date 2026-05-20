@@ -1,0 +1,47 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: orion-api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            - PreserveHostHeader
+          routes:
+            - id: identity-service
+              uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/v1/auth/**,/v1/users/**,/v1/roles/**,/v1/organizers/**
+            - id: event-management-service
+              uri: ${EVENT_MANAGEMENT_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/v1/events/**,/v1/venues/**,/v1/catalog/**
+            - id: seating-inventory-service
+              uri: ${SEATING_INVENTORY_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/v1/seats/**,/v1/reservations/**,/v1/batches/**,/v1/availability/**
+            - id: orders-service
+              uri: ${ORDERS_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/v1/orders/**,/v1/checkout/**
+            - id: payments-service
+              uri: ${PAYMENTS_SERVICE_URL:http://localhost:8085}
+              predicates:
+                - Path=/v1/payments/**,/v1/payouts/**
+            - id: ticket-issuance-service
+              uri: ${TICKET_ISSUANCE_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/v1/tickets/**,/v1/buyers/*/tickets
+            - id: notifications-service
+              uri: ${NOTIFICATIONS_SERVICE_URL:http://localhost:8088}
+              predicates:
+                - Path=/v1/notifications/**
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true

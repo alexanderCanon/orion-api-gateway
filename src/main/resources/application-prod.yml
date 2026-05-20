@@ -1,0 +1,13 @@
+logging:
+  level:
+    root: WARN
+    org.springframework.cloud.gateway: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      access: read_only
