@@ -33,6 +33,7 @@ services:
       - ${ORION_ENV_FILE:-.env}
     environment:
       SERVER_PORT: 8080
+      JDK_JAVA_OPTIONS: "-Xms256m -Xmx768m"
     expose:
       - "8080"
     restart: unless-stopped
