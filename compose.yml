@@ -4,9 +4,8 @@ services:
     container_name: orion-api-traefik
     command:
       - --api.dashboard=true
-      - --providers.docker=true
-      - --providers.docker.endpoint=unix:///var/run/docker.sock
-      - --providers.docker.exposedbydefault=false
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
@@ -17,10 +16,8 @@ services:
       - "${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_HTTPS_PORT:-443}:443"
       - "${TRAEFIK_DASHBOARD_PORT:-8090}:8080"
-    environment:
-      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.54}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - traefik_letsencrypt:/letsencrypt
     restart: unless-stopped
     networks:
@@ -42,16 +39,6 @@ services:
     expose:
       - "8080"
     restart: unless-stopped
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.orion-api-gateway-http.rule=Host(`${GATEWAY_HOST}`)
-      - traefik.http.routers.orion-api-gateway-http.entrypoints=web
-      - traefik.http.routers.orion-api-gateway-http.middlewares=orion-api-gateway-https-redirect
-      - traefik.http.middlewares.orion-api-gateway-https-redirect.redirectscheme.scheme=https
-      - traefik.http.routers.orion-api-gateway.rule=Host(`${GATEWAY_HOST}`)
-      - traefik.http.routers.orion-api-gateway.entrypoints=websecure
-      - traefik.http.routers.orion-api-gateway.tls.certresolver=letsencrypt
-      - traefik.http.services.orion-api-gateway.loadbalancer.server.port=8080
     networks:
       - orion-api-edge
     depends_on:

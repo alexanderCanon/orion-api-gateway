@@ -1,0 +1,29 @@
+http:
+  routers:
+    orion-api-gateway-http:
+      rule: Host(`api.orionticket.com`)
+      entryPoints:
+        - web
+      middlewares:
+        - https-redirect
+      service: orion-api-gateway
+
+    orion-api-gateway-https:
+      rule: Host(`api.orionticket.com`)
+      entryPoints:
+        - websecure
+      service: orion-api-gateway
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+  services:
+    orion-api-gateway:
+      loadBalancer:
+        servers:
+          - url: http://orion-api-gateway:8080
