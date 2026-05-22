@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: orion-api-gateway
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER:orionticket-identity}
+          jwk-set-uri: ${IDENTITY_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
   cloud:
     gateway:
       server:

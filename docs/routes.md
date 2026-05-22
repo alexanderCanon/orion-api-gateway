@@ -6,6 +6,8 @@ This document lists the routes configured in the Spring Cloud Gateway and how th
 
 The gateway filters incoming requests by their path prefix and routes them to the appropriate backend service using Tailscale node IPs.
 
+Protected routes require a Bearer JWT issued by Identity and validated through `IDENTITY_JWKS_URI`. The public application paths are `/v1/auth/**` and `/actuator/health`.
+
 | Route ID | Path Patterns | Target Upstream Variable | Default Fallback (Local) |
 | :--- | :--- | :--- | :--- |
 | **identity-service** | `/v1/auth/**`, `/v1/users/**`, `/v1/roles/**`, `/v1/organizers/**` | `IDENTITY_SERVICE_URL` | `http://localhost:8081` |
