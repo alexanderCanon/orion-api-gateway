@@ -33,6 +33,8 @@ services:
       - ${ORION_ENV_FILE:-.env}
     environment:
       SERVER_PORT: 8080
+      IDENTITY_SERVICE_URL: http://identity-service:8081
+      IDENTITY_JWKS_URI: http://identity-service:8081/.well-known/jwks.json
       JDK_JAVA_OPTIONS: "-Xms256m -Xmx768m"
     expose:
       - "8080"
@@ -47,6 +49,29 @@ services:
       - traefik.http.routers.orion-api-gateway.entrypoints=websecure
       - traefik.http.routers.orion-api-gateway.tls.certresolver=letsencrypt
       - traefik.http.services.orion-api-gateway.loadbalancer.server.port=8080
+    networks:
+      - orion-api-edge
+    depends_on:
+      identity-service:
+        condition: service_healthy
+
+  identity-service:
+    build:
+      context: ./identity-service
+      dockerfile: Dockerfile
+    image: orionticket/identity-service:${IMAGE_TAG:-latest}
+    container_name: identity-service
+    env_file:
+      - ${ORION_ENV_FILE:-.env}
+    environment:
+      SPRING_PROFILES_ACTIVE: ${IDENTITY_SPRING_PROFILES_ACTIVE:-prod}
+      SERVER_PORT: 8081
+      JDK_JAVA_OPTIONS: "-Xms256m -Xmx768m"
+    expose:
+      - "8081"
+    ports:
+      - "${IDENTITY_BIND_ADDRESS:-127.0.0.1}:${IDENTITY_SERVICE_PORT:-8081}:8081"
+    restart: unless-stopped
     networks:
       - orion-api-edge
 

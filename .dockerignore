@@ -1,0 +1,35 @@
+# Build output
+target/
+**/target/
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Local environment and secrets
+.env
+.env.*
+*.env
+
+# IDE and editor files
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Nested services are built with their own build contexts.
+identity-service/
+
+# Documentation and local-only files
+docs/
+README.md
+HELP.md
+docker/

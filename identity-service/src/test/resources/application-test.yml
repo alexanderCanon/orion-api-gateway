@@ -1,0 +1,54 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+
+jwt:
+  issuer: orionticket-identity-test
+  key-id: test-key-1
+  expiration: 3600
+  private-key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC3iCUt6JilO4n3
+    amFNiT8/IkAhoMtjvw2RxAqx8uvHxaJgcybI8/RFdkWs6nC0ECF8f2JNP1VWil/i
+    V94r4QLbF2X5NWrb8wbLPcycpztDv0wcmmu1Ht8/LMMUPtt/N3xhE5RstvMJ1+eh
+    GiLnCAhGsH+qOgetqwJOxEqqBBZwA/hC8dXPp58/N/NJ+rbXSUpx1rWc/XUwXOC2
+    +6hyyPMPskx41RVFKilOU4e8KDzuk49SUClU+pDzsnAVBu9FIx2iGE9Q5Twnw4US
+    xwpmmvlYfUo2hvjJCE48my1omEQ1F5Ky2fXmQgbH01VOareuW5qIb0qI1Pd2qKNk
+    ae/q6idPAgMBAAECggEADueimquEwgknd41kdjyK2LYPs+twDnC0nxLnCh6VTAsJ
+    LdYMNKOt7Ho3cbHfEfCBbQVCAXipleFKT4JyoOj20hOAt5AWq+LSZBe9EeJ5lf3n
+    e3yFpMGWFcutKBbBZ//PPRRZqHPkdvcuxiRDk1779RReZH+uofRSYqfe/Gxf5MbP
+    h1FA2qASZ0pcrIfVweqT9b86vw0eoZuNt0wX7/5yj4krYz7oDdzj86JtJOQkInly
+    NkNBfrr9Obpo0wWgULEiP/9L2VreqK0eZSecWdUI7dmyIVMCnS8pYanKbOUb3fw0
+    QMT9nuSmOyLny5setWhZlHuZYueuedelVRo4xUc6eQKBgQD5w9/o5V7DcLbqrLfa
+    WygtQBDt7r0IIRZnW27+5EJMKk5BEMlGR5Wr3l8UFCCRy7mngwOcWQSz0nh7Uz58
+    cl/9zhclZ6LT/r1mlQ3lvEtppIWJFNaS8jDcOccswukBq/j0Ts4sK+snYwIXW6yk
+    2oLx3OG7oCgH6y5GGFxLgSfl+wKBgQC8HQGYdXSIBDXGsQWBQK264Usip6LuszyQ
+    6tidn7obgV+baVjAu3JAlSZC2jtXgpa522GpcY5Cnd51+pEFo4oMpXNHSNR7xkVZ
+    n7qkXQdkVs04OWlHMNBdFI1rsvdjWc12wiHlFfzG35/EaLOrQrZRDrV4iNe1rB2O
+    f6cycSqHvQKBgDMaOZjsPTxdtn9DgYaCujCv+AbGnxSnuG7DTW2HhG0TBtnXNmdT
+    xDLbF7cC+zr5ZO36J2X47LZiLNaGzLUnra4/WYsErlMTvurbOnGz2fYufEf05IZC
+    WW7lv3PQGV6HMjPCX/q3rbBsWIQw9JzyPHKCEAmUljwwiVI8L74fGeu7AoGAboOD
+    +nOWoIoIpdA98a9z4USWhaeCm0WFoYW2+PNrvNkGuCDt2VzGRJbbQY9AKas4rbvq
+    5kcmUpC4rwsjw/JOGhvhW9G3s3fKKlsipYlZ3GL6cbuY1BAjeWunocwkdqO9h7WJ
+    gDKorJWYISV52HV68qf3iPar87lIK/1m1sWRPOkCgYBpQ+/u3q4d4UHhmIz795Kw
+    vMdyMQdt7hT8sGIkUoHISMVmxnjCj624OojhUpgYeyv5rq9ELvf64X31hFfTBhgy
+    6t2BBpMP+3Sk7oJymPdmSwiIRlhw2a6muZLwR1DIEbldmG3nUy08s4kQw2F7FoRa
+    SK4UfhxTFTixBNh2sZ8n1A==
+    -----END PRIVATE KEY-----
+  public-key: |
+    -----BEGIN PUBLIC KEY-----
+    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt4glLeiYpTuJ92phTYk/
+    PyJAIaDLY78NkcQKsfLrx8WiYHMmyPP0RXZFrOpwtBAhfH9iTT9VVopf4lfeK+EC
+    2xdl+TVq2/MGyz3MnKc7Q79MHJprtR7fPyzDFD7bfzd8YROUbLbzCdfnoRoi5wgI
+    RrB/qjoHrasCTsRKqgQWcAP4QvHVz6efPzfzSfq210lKcda1nP11MFzgtvuocsjz
+    D7JMeNUVRSopTlOHvCg87pOPUlApVPqQ87JwFQbvRSMdohhPUOU8J8OFEscKZpr5
+    WH1KNob4yQhOPJstaJhENReSstn15kIGx9NVTmq3rluaiG9KiNT3dqijZGnv6uon
+    TwIDAQAB
+    -----END PUBLIC KEY-----
