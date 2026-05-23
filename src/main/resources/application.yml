@@ -20,19 +20,19 @@ spring:
             - id: identity-service
               uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
               predicates:
-                - Path=/v1/auth/**,/v1/users/**,/v1/roles/**,/v1/organizers/**
+                - Path=/v1/auth/**,/v1/users/**,/v1/roles/**,/v1/organizers/**,/.well-known/jwks.json
+            - id: seating-inventory-service
+              uri: ${SEATING_INVENTORY_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/v1/events/*/dates/*/batches/**,/v1/events/*/dates/*/seating-map/**,/v1/events/*/dates/*/seats/**,/v1/reservations/**
             - id: event-management-service
               uri: ${EVENT_MANAGEMENT_SERVICE_URL:http://localhost:8082}
               predicates:
                 - Path=/v1/events/**,/v1/venues/**,/v1/catalog/**
-            - id: seating-inventory-service
-              uri: ${SEATING_INVENTORY_SERVICE_URL:http://localhost:8083}
-              predicates:
-                - Path=/v1/seats/**,/v1/reservations/**,/v1/batches/**,/v1/availability/**
             - id: orders-service
               uri: ${ORDERS_SERVICE_URL:http://localhost:8084}
               predicates:
-                - Path=/v1/orders/**,/v1/checkout/**
+                - Path=/v1/orders/**,/v1/buyers/*/orders,/v1/promotions/**
             - id: payments-service
               uri: ${PAYMENTS_SERVICE_URL:http://localhost:8085}
               predicates:
