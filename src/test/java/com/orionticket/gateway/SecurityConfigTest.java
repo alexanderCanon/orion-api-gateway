@@ -48,6 +48,14 @@ class SecurityConfigTest {
     }
 
     @Test
+    void catalogRouteDoesNotRequireJwt() {
+        webTestClient.get()
+                .uri("/v1/catalog/events")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
     void protectedRouteWithoutJwtReturnsUnauthorized() {
         webTestClient.get()
                 .uri("/v1/events")
