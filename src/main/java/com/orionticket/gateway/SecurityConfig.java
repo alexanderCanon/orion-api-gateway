@@ -22,6 +22,8 @@ public class SecurityConfig {
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/v1/auth/**").permitAll()
+                        .pathMatchers("/v1/catalog/**").permitAll()
+                        .pathMatchers("/.well-known/jwks.json").permitAll()
                         .pathMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .pathMatchers("/error").permitAll()
                         .anyExchange().authenticated()
