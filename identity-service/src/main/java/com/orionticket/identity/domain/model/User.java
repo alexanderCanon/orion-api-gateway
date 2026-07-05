@@ -29,13 +29,60 @@ public class User {
                 .passwordHash(passwordHash)
                 .fullName(fullName)
                 .phone(phone)
-                .status("UNVERIFIED") // Cumple con el criterio de aceptación de US-001
+                .status(UserStatus.UNVERIFIED.name()) // Cumple con el criterio de aceptación de US-001
                 .roleId(defaultBuyerRoleId)
                 .createdAt(ZonedDateTime.now())
                 .build();
     }
 
     public void suspend() {
-        this.status = "SUSPENDED";
+        this.status = UserStatus.SUSPENDED.name();
+    }
+
+    /**
+     * Transición de dominio: activa una cuenta (p. ej. al verificar email
+     * o al ser aprobada por un administrador).
+     *
+     * @throws IllegalStateException si la cuenta está suspendida; la
+     *         reactivación de cuentas suspendidas requiere un flujo
+     *         administrativo explícito, no este método.
+     */
+    public void activate() {
+        if (UserStatus.SUSPENDED.name().equals(this.status)) {
+            throw new IllegalStateException(
+                    "Cannot activate a suspended account directly; use the reactivation flow.");
+        }
+        this.status = UserStatus.ACTIVE.name();
+    }
+
+    /**
+     * Transición de dominio: marca el email como verificado.
+     * Solo es válida desde {@code UNVERIFIED}; idempotente si ya está activa.
+     */
+    public void verifyEmail() {
+        if (UserStatus.SUSPENDED.name().equals(this.status)) {
+            throw new IllegalStateException("Cannot verify email of a suspended account.");
+        }
+        this.status = UserStatus.ACTIVE.name();
+    }
+
+    /**
+     * Indica si el usuario puede autenticarse según su estado actual.
+     * Política: {@code SUSPENDED} nunca; {@code ACTIVE} y {@code UNVERIFIED} sí.
+     */
+    public boolean canAuthenticate() {
+        return currentStatus().canAuthenticate();
+    }
+
+    public boolean isActive() {
+        return UserStatus.ACTIVE.name().equals(this.status);
+    }
+
+    public boolean isSuspended() {
+        return UserStatus.SUSPENDED.name().equals(this.status);
+    }
+
+    private UserStatus currentStatus() {
+        return UserStatus.fromString(this.status);
     }
 }
