@@ -37,7 +37,10 @@ public class SecurityConfig {
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/v1/auth/**").permitAll() // Registro/Login siempre abierto
+                // Endpoints públicos de autenticación: rutas EXPLÍCITAS (no wildcard)
+                // para evitar exponer por accidente endpoints futuros bajo /v1/auth/.
+                .requestMatchers("/v1/auth/register", "/v1/auth/login",
+                                 "/v1/auth/refresh", "/v1/auth/logout").permitAll()
                 .requestMatchers("/.well-known/jwks.json").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .requestMatchers("/actuator/health").permitAll() // Salud para monitoreo

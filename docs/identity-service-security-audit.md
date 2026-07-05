@@ -6,6 +6,7 @@
 >
 > **Estado de implementación:**
 > - ✅ **Fase 0 — Quick wins: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
+> - ✅ **Fase 1 — Refresh tokens, revocación y logout: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 
 ---
 
@@ -387,8 +388,8 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 
 ## Checklist de verificación final (Definition of Done)
 
-- [x] ~~Usuario `SUSPENDED` no puede hacer login~~ (Fase 0 — validado con test unitario; falta validación en refresh, Fase 1)
-- [ ] Flujo completo: register → email de verificación → verify → login → refresh → logout (test de integración)
+- [x] ~~Usuario `SUSPENDED` no puede hacer login ni refresh~~ (Fase 0 + Fase 1 — validado con tests unitarios)
+- [ ] Flujo completo: register → email de verificación → verify → login → refresh → logout (test de integración; logout y refresh listos, falta verify en Fase 3)
 - [ ] Recover password end-to-end con token de un solo uso e invalidación de sesiones
 - [ ] 5 logins fallidos → cuenta bloqueada temporalmente (test)
 - [x] ~~Respuestas de `/register` no permiten enumeración por timing~~ (Fase 0 — BCrypt dummy ejecutado en login; registro aún devuelve 409, revisar en Fase 3)
@@ -396,7 +397,9 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - [x] ~~`grep -r "AppSecret789\|guest" src/main/resources` → sin resultados~~ (Fase 0 — `AppSecret789` y `guest/guest` en prod eliminados)
 - [x] ~~Arranque con perfil `prod` falla si faltan secretos obligatorios~~ (Fase 0 — fallbacks eliminados en prod)
 - [x] ~~Logs en prod: sin DEBUG de security~~ (Fase 0 — `WARN` en prod)
-- [ ] Reuso de refresh token rotado revoca toda la cadena (test)
+- [x] ~~Reuso de refresh token rotado revoca toda la cadena~~ (Fase 1 — validado con test unitario)
+- [x] ~~Logout revoca refresh token; `all=true` revoca todas las sesiones~~ (Fase 1)
+- [x] ~~Suspensión/cambio de rol revoca todas las sesiones activas~~ (Fase 1)
 - [ ] `mvn verify` en verde con Testcontainers (los tests unitarios pasan; los de integración requieren Docker disponible en el entorno)
 
 ---
@@ -450,3 +453,69 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - `mvn compile` ✅
 - Tests unitarios ✅ (LoginUserUseCaseTest, UserManagementServiceTest, RegisterUserUseCaseTest, AuthControllerTest, JwtProviderAdapterTest, JwtAuthoritiesConverterTest, AuthenticatedUserResolverTest, JwksControllerTest).
 - Tests de integración (Testcontainers): no ejecutables en este entorno (Docker no disponible). **Pendiente:** ejecutar `mvn verify` en un entorno con Docker antes de desplegar.
+
+---
+
+### Fase 1 — Refresh tokens, revocación y logout (COMPLETADA 2026-07-05)
+
+#### 1.1 Migración `V5__refresh_tokens.sql` ✅
+- Tabla `refresh_tokens` con `token_hash` (SHA-256, CHAR(64), único), `parent_id` (cadena de rotación), `issued_at`, `expires_at`, `revoked_at`, `user_agent`, `ip_address`.
+- Índices en `user_id`, `token_hash`, `expires_at`.
+- FK a `users(user_id)` con `ON DELETE` restrictivo por defecto.
+
+#### 1.2 Dominio `RefreshToken` + puerto `RefreshTokenRepositoryPort` ✅
+- **`domain/model/RefreshToken.java`** — modelo de dominio con `isExpired()`, `isRevoked()`, `isValid()`, `revoke()`.
+- **`domain/port/out/RefreshTokenRepositoryPort.java`** — `save`, `findByTokenHash`, `revokeAllForUser(userId)`, `revokeChain(tokenId)`, `countActiveForUser(userId)`.
+
+#### 1.3 Adapter JPA ✅
+- **`infrastructure/.../entity/RefreshTokenJpaEntity.java`** — entidad JPA mapeada a `refresh_tokens`.
+- **`infrastructure/.../repository/SpringDataRefreshTokenRepository.java`** — repo Spring Data con `revokeAllForUser` (UPDATE JPQL) y `revokeChain` (CTE recursiva nativa para recorrer la cadena `parent_id`).
+- **`infrastructure/.../mapper/RefreshTokenMapper.java`** — mapper bidireccional.
+- **`infrastructure/.../RefreshTokenRepositoryAdapter.java`** — implementación del puerto.
+
+#### 1.4 Login genera access + refresh; access TTL bajado a 15 min ✅
+- **`application/port/out/RefreshTokenGeneratorPort.java`** — puerto para generar token opaco (SecureRandom 256 bits) y hashear con SHA-256.
+- **`infrastructure/.../security/SecureRandomRefreshTokenGenerator.java`** — implementación.
+- **`application/port/in/AuthResult.java`** — value object con `accessToken`, `refreshToken`, `tokenType`, `expiresIn`, `user`.
+- **`application/port/in/LoginUserUseCase.java`** — firma cambiada a `login(email, password, userAgent, ipAddress)` → `AuthResult`; eliminado `getUserByEmail` (M7).
+- **`application/service/LoginUserService.java`** — genera access JWT + refresh opaco rotativo persistido hasheado; `@Transactional`; `@Value` para TTLs.
+- **`application.yml`** — `jwt.expiration: 900` (15 min), `jwt.refresh-expiration: 2592000` (30 días).
+
+#### 1.5 `RefreshTokenService` (rotación + detección de reuso) ✅
+- **`application/port/in/RefreshTokenUseCase.java`** + **`application/service/RefreshTokenService.java`**:
+  - Busca por hash; si no existe → 401.
+  - **Detección de reuso:** si el token ya está revocado (ya rotado) → revoca toda la cadena (`revokeChain`) y 401.
+  - Si expirado → revoca y 401.
+  - Verifica `user.canAuthenticate()`; si suspendido → `revokeAllForUser` + 403.
+  - **Rotación:** revoca el token actual, emite nuevo par access+refresh encadenado vía `parentId`.
+
+#### 1.6 `LogoutService` ✅
+- **`application/port/in/LogoutUseCase.java`** + **`application/service/LogoutService.java`**:
+  - `logout(token)` revoca el token presentado.
+  - `logout(token, all=true)` revoca todos los tokens del usuario.
+  - **Idempotente:** token blank/null/desconocido no falla.
+
+#### 1.7 Suspensión/cambio de rol revocan sesiones ✅
+- **`UserManagementService.java`** — `suspendUser`, `updateUserRole` y `updateUserStatus(SUSPENDED)` llaman `revokeAllForUser(userId)`. Así la suspensión surte efecto en ≤ TTL del access (15 min), no en 24h.
+
+#### 1.8 API ✅
+- **`dto/LoginResponse.java`** — añadido `refreshToken`; schema OpenAPI documentado.
+- **`dto/RefreshRequest.java`** + **`dto/LogoutRequest.java`** — nuevos DTOs con validación.
+- **`AuthController.java`** — reescrito: `POST /v1/auth/login` (devuelve access+refresh), `POST /v1/auth/refresh` (rotación), `POST /v1/auth/logout` (204). Captura `User-Agent` e IP (`X-Forwarded-For`) para audit. Eliminada la consulta duplicada a `RoleRepositoryPort` (M7).
+
+#### 1.9 SecurityConfig con rutas explícitas ✅
+- **`SecurityConfig.java`** — reemplazado wildcard `/v1/auth/**` por rutas explícitas: `/v1/auth/register`, `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout` (M6).
+
+#### 1.10 Tests ✅
+- **`LoginUserUseCaseTest`** — actualizado (5 tests): verifica access+refresh, suspended, unverified, non-existent con BCrypt dummy.
+- **`RefreshTokenServiceTest`** (nuevo, 6 tests): rotación válida, token desconocido, **detección de reuso revoca cadena**, expirado, usuario suspendido revoca todos, token blank.
+- **`LogoutServiceTest`** (nuevo, 4 tests): logout simple, logout all, token desconocido idempotente, token blank idempotente.
+- **`AuthControllerTest`** — actualizado para nueva firma y `AuthResult`.
+- **`UserManagementServiceTest`** — actualizado con mock de `RefreshTokenRepositoryPort`; verifica revocación al suspender.
+- **`SecurityAuthorizationTest`** — actualizado con `@MockBean` para `RefreshTokenUseCase`/`LogoutUseCase` y nueva firma de login.
+- **Resultado:** 32 tests, 0 fallos, BUILD SUCCESS.
+
+#### Verificación
+- `mvn compile` ✅
+- Tests unitarios ✅ (32 tests, 0 fallos).
+- Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. **Importante:** la CTE recursiva de `revokeChain` y la migración V5 deben validarse contra PostgreSQL real antes de desplegar.

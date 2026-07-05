@@ -1,6 +1,9 @@
 package com.orionticket.identity.infrastructure;
 
+import com.orionticket.identity.application.port.in.AuthResult;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
+import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
 import com.orionticket.identity.application.port.in.RoleManagementUseCase;
 import com.orionticket.identity.application.port.in.UserManagementUseCase;
@@ -51,6 +54,12 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private LoginUserUseCase loginUserUseCase;
+
+    @MockBean
+    private RefreshTokenUseCase refreshTokenUseCase;
+
+    @MockBean
+    private LogoutUseCase logoutUseCase;
 
     @MockBean
     private UserManagementUseCase userManagementUseCase;
@@ -153,9 +162,17 @@ class SecurityAuthorizationTest {
                 .userId(UUID.randomUUID())
                 .email("buyer@orionticket.com")
                 .roleId(roleId)
+                .status("ACTIVE")
                 .build();
-        when(loginUserUseCase.login("buyer@orionticket.com", "password123")).thenReturn("jwt");
-        when(loginUserUseCase.getUserByEmail("buyer@orionticket.com")).thenReturn(user);
+        AuthResult authResult = AuthResult.builder()
+                .accessToken("jwt")
+                .refreshToken("refresh")
+                .tokenType("Bearer")
+                .expiresIn(900L)
+                .user(user)
+                .build();
+        when(loginUserUseCase.login(eq("buyer@orionticket.com"), eq("password123"), any(), any()))
+                .thenReturn(authResult);
         when(roleRepositoryPort.findById(roleId)).thenReturn(Optional.of(Role.builder()
                 .roleId(roleId)
                 .name("BUYER")

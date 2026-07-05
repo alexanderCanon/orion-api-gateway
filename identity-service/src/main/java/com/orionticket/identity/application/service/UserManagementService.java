@@ -8,6 +8,7 @@ import com.orionticket.identity.domain.exception.UserAlreadyExistsException;
 import com.orionticket.identity.domain.exception.UserNotFoundException;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.model.UserStatus;
+import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,6 +24,7 @@ public class UserManagementService implements UserManagementUseCase {
     private final UserRepositoryPort userRepositoryPort;
     private final AuditLogPort auditLogPort;
     private final IdentityEventPublisherPort eventPublisherPort;
+    private final RefreshTokenRepositoryPort refreshTokenRepositoryPort;
 
     @Override
     @Transactional
@@ -33,6 +35,9 @@ public class UserManagementService implements UserManagementUseCase {
         user.suspend();
 
         User savedUser = userRepositoryPort.save(user);
+        // Revocar todas las sesiones activas: la suspensión surte efecto en
+        // cuanto el access token en vuelo expire (≤ TTL), no en 24h como antes.
+        refreshTokenRepositoryPort.revokeAllForUser(userId);
         auditLogPort.logAction(adminId, "SUSPEND_USER", "User " + userId + " was suspended.");
 
         return savedUser;
@@ -47,6 +52,9 @@ public class UserManagementService implements UserManagementUseCase {
         user.setRoleId(newRoleId);
 
         User savedUser = userRepositoryPort.save(user);
+        // Revocar sesiones para que los permisos del rol anterior (y los
+        // claims del JWT) no sigan vigentes hasta el TTL del access token.
+        refreshTokenRepositoryPort.revokeAllForUser(userId);
         auditLogPort.logAction(adminId, "UPDATE_USER_ROLE", "User " + userId + " role updated to " + newRoleId);
 
         return savedUser;
@@ -167,6 +175,10 @@ public class UserManagementService implements UserManagementUseCase {
         }
 
         User savedUser = userRepositoryPort.save(user);
+        // Si la cuenta quedó suspendida, revocar todas las sesiones activas.
+        if (savedUser.isSuspended()) {
+            refreshTokenRepositoryPort.revokeAllForUser(userId);
+        }
         auditLogPort.logAction(adminId, "UPDATE_USER_STATUS",
                 "User " + userId + " status updated to " + newStatus);
         return savedUser;

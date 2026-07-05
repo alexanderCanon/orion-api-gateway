@@ -49,6 +49,14 @@ logging:
         com.orionticket: DEBUG
         org.springframework.security: DEBUG
 
+# TTL de tokens (Fase 1 del plan de seguridad):
+#   - access token: 15 min (corto, irrevocable por naturaleza del JWT)
+#   - refresh token: 30 días (rotativo, revocable, persistido hasheado)
+# En prod estos valores deben venir de variables de entorno.
+jwt:
+    expiration: ${JWT_EXPIRATION:900}
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:2592000}
+
 management:
     endpoints:
         web:

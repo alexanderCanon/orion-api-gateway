@@ -1,12 +1,16 @@
 package com.orionticket.identity.infrastructure.adapters.in.rest;
 
+import com.orionticket.identity.application.port.in.AuthResult;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
+import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -20,9 +24,7 @@ import static org.mockito.Mockito.when;
 class AuthControllerTest {
 
     @Test
-    void loginReturnsBearerTokenAndAuthenticatedUserContext() {
-        RegisterUserUseCase register = mock(RegisterUserUseCase.class);
-        LoginUserUseCase login = mock(LoginUserUseCase.class);
+    void loginReturnsAccessAndRefreshTokenAndUserContext() {
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
         UUID organizerId = UUID.randomUUID();
@@ -31,25 +33,45 @@ class AuthControllerTest {
                 .email("organizer@orionticket.com")
                 .roleId(roleId)
                 .organizerId(organizerId)
+                .status("ACTIVE")
                 .build();
-        RoleRepositoryPort roles = roleRepository(Role.builder()
+        Role role = Role.builder()
                 .roleId(roleId)
                 .name("ORGANIZER")
                 .permissions(List.of("events:create"))
-                .build());
-        AuthController controller = new AuthController(register, login, roles, 3600);
+                .build();
+        AuthResult authResult = AuthResult.builder()
+                .accessToken("signed.jwt")
+                .refreshToken("opaque-refresh")
+                .tokenType("Bearer")
+                .expiresIn(900L)
+                .user(user)
+                .build();
+
+        RegisterUserUseCase register = mock(RegisterUserUseCase.class);
+        LoginUserUseCase login = mock(LoginUserUseCase.class);
+        RefreshTokenUseCase refresh = mock(RefreshTokenUseCase.class);
+        LogoutUseCase logout = mock(LogoutUseCase.class);
+        RoleRepositoryPort roles = roleRepository(role);
+        HttpServletRequest httpRequest = mock(HttpServletRequest.class);
+
+        when(httpRequest.getHeader("User-Agent")).thenReturn("test-ua");
+        when(httpRequest.getHeader("X-Forwarded-For")).thenReturn("127.0.0.1");
+        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(login.login("organizer@orionticket.com", "password123", "test-ua", "127.0.0.1"))
+                .thenReturn(authResult);
+
+        AuthController controller = new AuthController(register, login, refresh, logout, roles);
         LoginRequest request = new LoginRequest();
         request.setEmail("organizer@orionticket.com");
         request.setPassword("password123");
 
-        when(login.login("organizer@orionticket.com", "password123")).thenReturn("signed.jwt");
-        when(login.getUserByEmail("organizer@orionticket.com")).thenReturn(user);
-
-        LoginResponse response = controller.login(request).getBody();
+        LoginResponse response = controller.login(request, httpRequest).getBody();
 
         assertEquals("signed.jwt", response.getAccessToken());
+        assertEquals("opaque-refresh", response.getRefreshToken());
         assertEquals("Bearer", response.getTokenType());
-        assertEquals(3600, response.getExpiresIn());
+        assertEquals(900L, response.getExpiresIn());
         assertEquals(userId, response.getUserId());
         assertEquals("ORGANIZER", response.getRole());
         assertEquals(organizerId, response.getOrganizerId());

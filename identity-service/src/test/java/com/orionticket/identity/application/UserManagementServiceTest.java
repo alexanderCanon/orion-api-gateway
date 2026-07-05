@@ -1,9 +1,11 @@
 package com.orionticket.identity.application;
 
 import com.orionticket.identity.application.port.out.AuditLogPort;
+import com.orionticket.identity.application.port.out.IdentityEventPublisherPort;
 import com.orionticket.identity.application.service.UserManagementService;
 import com.orionticket.identity.domain.exception.UserNotFoundException;
 import com.orionticket.identity.domain.model.User;
+import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,12 @@ class UserManagementServiceTest {
 
     @Mock
     private AuditLogPort auditLogPort;
+
+    @Mock
+    private IdentityEventPublisherPort eventPublisherPort;
+
+    @Mock
+    private RefreshTokenRepositoryPort refreshTokenRepositoryPort;
 
     @InjectMocks
     private UserManagementService userManagementService;
@@ -55,6 +63,8 @@ class UserManagementServiceTest {
         assertEquals("SUSPENDED", suspendedUser.getStatus());
         verify(userRepositoryPort, times(1)).save(suspendedUser);
         verify(auditLogPort, times(1)).logAction(adminId, "SUSPEND_USER", "User " + userId + " was suspended.");
+        // Fase 1: la suspensión debe revocar todas las sesiones activas.
+        verify(refreshTokenRepositoryPort, times(1)).revokeAllForUser(userId);
     }
 
     @Test

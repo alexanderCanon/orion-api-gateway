@@ -1,16 +1,24 @@
 package com.orionticket.identity.application.service;
 
+import com.orionticket.identity.application.port.in.AuthResult;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
 import com.orionticket.identity.application.port.out.JwtProviderPort;
 import com.orionticket.identity.application.port.out.PasswordHasherPort;
+import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
+import com.orionticket.identity.domain.model.RefreshToken;
 import com.orionticket.identity.domain.model.User;
+import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -28,9 +36,18 @@ public class LoginUserService implements LoginUserUseCase {
     private final UserRepositoryPort userRepositoryPort;
     private final PasswordHasherPort passwordHasherPort;
     private final JwtProviderPort jwtProviderPort;
+    private final RefreshTokenGeneratorPort refreshTokenGenerator;
+    private final RefreshTokenRepositoryPort refreshTokenRepository;
+
+    @Value("${jwt.expiration:${JWT_EXPIRATION:900}}")
+    private long accessExpirationSeconds;
+
+    @Value("${jwt.refresh-expiration:${JWT_REFRESH_EXPIRATION:2592000}}")
+    private long refreshExpirationSeconds;
 
     @Override
-    public String login(String email, String rawPassword) {
+    @Transactional
+    public AuthResult login(String email, String rawPassword, String userAgent, String ipAddress) {
         Optional<User> userOpt = userRepositoryPort.findByEmail(email);
 
         // 1. Si el usuario no existe, ejecutamos BCrypt contra un hash dummy
@@ -53,13 +70,30 @@ public class LoginUserService implements LoginUserUseCase {
             throw new AccountDisabledException();
         }
 
-        // 4. Generar JWT
-        return jwtProviderPort.generateToken(user);
-    }
+        // 4. Generar access token JWT (corta vida)
+        String accessToken = jwtProviderPort.generateToken(user);
 
-    @Override
-    public User getUserByEmail(String email) {
-        return userRepositoryPort.findByEmail(email)
-                .orElseThrow(() -> new InvalidCredentialsException("Usuario no encontrado."));
+        // 5. Generar refresh token opaco rotativo y persistirlo hasheado
+        String rawRefreshToken = refreshTokenGenerator.generate();
+        String refreshHash = refreshTokenGenerator.hash(rawRefreshToken);
+        RefreshToken persisted = refreshTokenRepository.save(RefreshToken.builder()
+                .tokenId(UUID.randomUUID())
+                .userId(user.getUserId())
+                .tokenHash(refreshHash)
+                .parentId(null)
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(refreshExpirationSeconds))
+                .revokedAt(null)
+                .userAgent(userAgent)
+                .ipAddress(ipAddress)
+                .build());
+
+        return AuthResult.builder()
+                .accessToken(accessToken)
+                .refreshToken(rawRefreshToken)
+                .tokenType(AuthResult.TOKEN_TYPE)
+                .expiresIn(accessExpirationSeconds)
+                .user(user)
+                .build();
     }
 }
