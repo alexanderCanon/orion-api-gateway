@@ -12,7 +12,6 @@ import com.orionticket.identity.application.port.in.ResetPasswordUseCase;
 import com.orionticket.identity.application.port.in.VerifyEmailUseCase;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
-import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.ChangePasswordRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginResponse;
@@ -55,7 +54,6 @@ public class AuthController {
     private final VerifyEmailUseCase verifyEmailUseCase;
     private final ResendVerificationUseCase resendVerificationUseCase;
     private final ChangePasswordUseCase changePasswordUseCase;
-    private final RoleRepositoryPort roleRepositoryPort;
     private final AuthenticatedUserResolver authenticatedUserResolver;
 
     @Operation(summary = "Register buyer", description = "Registers a buyer account in UNVERIFIED status and sends a verification email.")
@@ -200,8 +198,7 @@ public class AuthController {
 
     private LoginResponse toLoginResponse(AuthResult result) {
         User user = result.user();
-        Role role = roleRepositoryPort.findById(user.getRoleId())
-                .orElseThrow(() -> new IllegalStateException("User role not found: " + user.getRoleId()));
+        Role role = result.role();
 
         return LoginResponse.builder()
                 .accessToken(result.accessToken())

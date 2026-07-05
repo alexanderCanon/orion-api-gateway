@@ -707,3 +707,85 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - `mvn compile` ✅
 - Tests unitarios ✅ (102 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker.
+
+---
+
+## FASE 5 — Endurecimiento (M1–M7, B1–B4)
+
+### 5.1 Roles por nombre, no por UUID mágico (M1) ✅
+- **`RoleName`** (nuevo enum en `domain.model`): fuente única de verdad para los nombres de roles del sistema (`SUPER_ADMIN`, `ORGANIZER`, `BUYER`, `VENUE_STAFF`, `DOOR_VALIDATOR`).
+- **`RoleRepositoryPort`**: añadido `findByName(String)`.
+- **`SpringDataRoleRepository`**: añadido `Optional<RoleJpaEntity> findByName(String)`.
+- **`RoleRepositoryAdapter`**: implementado `findByName` delegando al repositorio Spring Data.
+- **`RegisterUserService`**: eliminado el UUID mágico `DEFAULT_BUYER_ROLE_ID = "00000000-0000-0000-0000-000000000001"`; ahora resuelve el rol `BUYER` por nombre vía `roleRepositoryPort.findByName(RoleName.BUYER.value())`.
+- **`UserManagementService.createOrganizerStaff`**: eliminados los UUIDs mágicos `venueStaffId` y `doorValidatorId`; ahora resuelve el rol por ID y valida que sea `VENUE_STAFF` o `DOOR_VALIDATOR` comparando nombres vía `RoleName`.
+- **`UserManagementService.updateUserRole`**: añadida validación de que el rol exista (`RoleRepositoryPort.findById` → `RoleNotFoundException` 404 si no) y prohibición de auto-modificación (`userId.equals(adminId)` → `RoleNotAllowedException`).
+
+### 5.2 Autorización estricta (M2, M3) ✅
+- **`AuthenticatedUserResolver.resolveOrganizerId`**: eliminado el fallback `userId` → `organizerId`. Si el rol es `ORGANIZER` y falta el claim `organizerId`, se lanza `AccessDeniedException` (era un riesgo de suplantación: un staff podría heredar el `organizerId` del subject).
+- **`updateUserRole`**: prohibida la auto-modificación de rol (defensa en profundidad además del `@PreAuthorize` del controller).
+
+### 5.3 Headers de seguridad y CORS (M4) ✅
+- **`SecurityConfig.filterChain`**: añadidos:
+  - `sessionManagement(STATELESS)` — explícito, no crear `HttpSession`.
+  - `headers.httpStrictTransportSecurity` — HSTS con `includeSubDomains(true)` y `maxAgeInSeconds(31536000)`.
+  - `headers.contentTypeOptions` — `X-Content-Type-Options: nosniff`.
+  - `headers.cacheControl` — `Cache-Control: no-store` en respuestas.
+- **CORS**: se documenta que lo maneja el API Gateway (Traefik) en producción; no se define `CorsConfigurationSource` para no duplicar lógica.
+
+### 5.4 Rotación de claves JWT (M5) ⏳
+- **Pendiente**: el `JwtProviderAdapter` actual usa una sola clave RSA configurada vía `jwt.private-key` / `jwt.public-key`. Para soportar rotación sin downtime habría que:
+  1. Cambiar `SecurityConfig.jwtDecoder` para usar `NimbusJwtDecoder.withJwkSetUri(...)` apuntando al propio JWKS local.
+  2. Soportar múltiples claves en `JwtProviderAdapter` (lista activa para firmar + anteriores para validar).
+  3. Documentar el procedimiento de rotación (agregar clave nueva → esperar TTL máximo del access token → retirar la vieja).
+- **Decisión**: se deja pendiente porque requiere cambios arquitecturales mayores en la gestión de claves y no hay un requisito inmediato de rotación. El endpoint `/.well-known/jwks.json` ya expone la clave pública con su `kid`.
+
+### 5.5 Hashing (B1) ✅
+- **`SecurityConfig.passwordEncoder`**: cambiado de `BCryptPasswordEncoder` (strength default 10) a `DelegatingPasswordEncoder` con:
+  - `bcrypt` strength 12 como encoder default para nuevos hashes.
+  - `setDefaultPasswordEncoderForMatches(new BCryptPasswordEncoder(12))` — fallback para validar hashes existentes sin prefijo `{bcrypt}` (compatibilidad con los hashes generados antes de esta fase).
+  - Permite migrar a Argon2id en el futuro sin romper los hashes existentes.
+
+### 5.6 Refactor del login (M7) ✅
+- **`AuthResult`**: añadido campo `Role role` al record, de modo que el use case devuelve el rol ya resuelto.
+- **`LoginUserService`**: busca el rol vía `roleRepositoryPort.findById` y lo incluye en el `AuthResult`.
+- **`RefreshTokenService`**: idem, busca el rol y lo incluye en el `AuthResult`.
+- **`AuthController`**: eliminada la inyección de `RoleRepositoryPort` y la consulta duplicada `roleRepositoryPort.findById(user.getRoleId())` en `toLoginResponse`; ahora usa `result.role()` directamente.
+
+### Tests actualizados y nuevos ✅
+
+#### Tests actualizados
+- **`LoginUserUseCaseTest`** — actualizado (9 tests): añadido `@Mock RoleRepositoryPort`; constructor con 7 args; mock de `roleRepositoryPort.findById` en los 4 tests de login exitoso.
+- **`RefreshTokenServiceTest`** — actualizado (6 tests): añadido `@Mock RoleRepositoryPort`; constructor con 6 args; mock de `roleRepositoryPort.findById` en el test de refresh exitoso.
+- **`RegisterUserUseCaseTest`** — actualizado (2→4 tests): añadido `@Mock RoleRepositoryPort`; constructor con 7 args; mock de `roleRepositoryPort.findByName("BUYER")` en el test de registro exitoso.
+- **`UserManagementServiceTest`** — actualizado (2→8 tests): añadido `@Mock RoleRepositoryPort` (inyectado automáticamente vía `@InjectMocks`).
+- **`AuthenticatedUserResolverTest`** — actualizado (3 tests): el test `currentUserUsesSubjectAsOrganizerIdWhenOrganizerClaimIsMissing` se renombró a `currentUserThrowsAccessDeniedWhenOrganizerClaimIsMissingForOrganizerRole` y ahora verifica que se lanza `AccessDeniedException` (comportamiento esperado tras eliminar el fallback).
+- **`AuthControllerTest`** — actualizado (1 test): eliminada la inyección de `RoleRepositoryPort`; `AuthResult` ahora incluye `role`; constructor con 10 args (sin `roles`).
+- **`SecurityAuthorizationTest`** — actualizado (6 tests): `AuthResult` del test `loginEndpointRemainsPublic` ahora incluye `role`.
+- **`JwksControllerTest`** y **`JwtProviderAdapterTest`** — actualizados: implementaciones anónimas de `RoleRepositoryPort` ahora implementan `findByName`.
+
+#### Tests nuevos
+- **`RegisterUserUseCaseTest`** — 2 tests nuevos:
+  - `givenValidData_whenRegisterUser_thenResolvesBuyerRoleByNameNotByUuid`: verifica que se llama `findByName("BUYER")` y que el `roleId` del usuario es el que devolvió la BD, no un UUID mágico; verifica que no se usa `findById`.
+  - `givenBuyerRoleNotFound_whenRegisterUser_thenThrowsIllegalState`: verifica que si el rol BUYER no existe en la BD, se lanza `IllegalStateException` (error de configuración) y no se persiste el usuario.
+- **`UserManagementServiceTest`** — 6 tests nuevos:
+  - `createOrganizerStaffRejectsRoleNotInAllowedList`: verifica que un rol que no es `VENUE_STAFF` ni `DOOR_VALIDATOR` (p. ej. `BUYER`) es rechazado con `RoleNotAllowedException`.
+  - `createOrganizerStaffThrowsRoleNotFoundWhenRoleDoesNotExist`: verifica que si el `roleId` no existe en la BD, se lanza `RoleNotFoundException`.
+  - `createOrganizerStaffAcceptsVenueStaffRole`: verifica que `VENUE_STAFF` es aceptado y el usuario se persiste con el `organizerId` correcto.
+  - `updateUserRoleProhibitsSelfModification`: verifica que `userId == adminId` lanza `RoleNotAllowedException` y no se persiste ni se revocan sesiones.
+  - `updateUserRoleThrowsRoleNotFoundWhenRoleDoesNotExist`: verifica que si el nuevo rol no existe, se lanza `RoleNotFoundException` (404).
+  - `updateUserRoleSucceedsAndRevokesSessionsWhenRoleExists`: verifica que cuando el rol existe y no es auto-modificación, el cambio procede, se revocan sesiones y se audita.
+- **`AuthenticatedUserResolverTest`** — 1 test nuevo (renombre del existente):
+  - `currentUserThrowsAccessDeniedWhenOrganizerClaimIsMissingForOrganizerRole`: verifica que un JWT con rol `ORGANIZER` sin claim `organizerId` lanza `AccessDeniedException` (antes hacía fallback al `userId`).
+- **`SecurityConfigTest`** (nueva clase) — 4 tests nuevos:
+  - `passwordEncoderProducesBcryptPrefixedHashForNewPasswords`: verifica que los nuevos hashes tienen prefijo `{bcrypt}`.
+  - `passwordEncoderValidatesNewBcryptPrefixedHash`: verifica que un hash generado por el encoder valida correctamente.
+  - `passwordEncoderValidatesLegacyHashWithoutPrefix`: verifica que un hash bcrypt sin prefijo (generado con `BCryptPasswordEncoder` strength 10, como los existentes en BD) sigue validando gracias a `setDefaultPasswordEncoderForMatches`.
+  - `passwordEncoderUsesBcryptStrength12`: verifica que los nuevos hashes usan `$2a$12$` (strength 12).
+
+- **Resultado:** 114 tests, 0 fallos, BUILD SUCCESS (antes 102, ahora +12 tests nuevos).
+
+### Verificación
+- `mvn compile` ✅
+- Tests unitarios ✅ (114 tests, 0 fallos).
+- Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker.

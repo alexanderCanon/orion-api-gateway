@@ -10,8 +10,10 @@ import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.AccountLockedException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.model.RefreshToken;
+import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
+import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,7 @@ public class LoginUserService implements LoginUserUseCase {
     private final RefreshTokenGeneratorPort refreshTokenGenerator;
     private final RefreshTokenRepositoryPort refreshTokenRepository;
     private final AuditLogPort auditLogPort;
+    private final RoleRepositoryPort roleRepositoryPort;
 
     @Value("${jwt.expiration:${JWT_EXPIRATION:900}}")
     private long accessExpirationSeconds;
@@ -103,6 +106,8 @@ public class LoginUserService implements LoginUserUseCase {
 
         // 6. Generar access token JWT (corta vida)
         String accessToken = jwtProviderPort.generateToken(user);
+        Role role = roleRepositoryPort.findById(user.getRoleId())
+                .orElseThrow(() -> new IllegalStateException("User role not found: " + user.getRoleId()));
 
         // 7. Generar refresh token opaco rotativo y persistirlo hasheado
         String rawRefreshToken = refreshTokenGenerator.generate();
@@ -129,6 +134,7 @@ public class LoginUserService implements LoginUserUseCase {
                 .tokenType(AuthResult.TOKEN_TYPE)
                 .expiresIn(accessExpirationSeconds)
                 .user(user)
+                .role(role)
                 .build();
     }
 }

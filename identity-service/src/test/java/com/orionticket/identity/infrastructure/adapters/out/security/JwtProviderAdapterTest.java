@@ -98,6 +98,11 @@ class JwtProviderAdapterTest {
             }
 
             @Override
+            public Optional<Role> findByName(String name) {
+                return Optional.of(role);
+            }
+
+            @Override
             public List<Role> findAll() {
                 return List.of(role);
             }

@@ -10,8 +10,10 @@ import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.AccountLockedException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.model.RefreshToken;
+import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
+import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -42,13 +45,16 @@ class LoginUserUseCaseTest {
     private RefreshTokenRepositoryPort refreshTokenRepository;
     @Mock
     private AuditLogPort auditLogPort;
+    @Mock
+    private RoleRepositoryPort roleRepositoryPort;
 
     private LoginUserService loginUserService;
 
     @BeforeEach
     void setUp() {
         loginUserService = new LoginUserService(userRepositoryPort, passwordHasherPort,
-                jwtProviderPort, refreshTokenGenerator, refreshTokenRepository, auditLogPort);
+                jwtProviderPort, refreshTokenGenerator, refreshTokenRepository, auditLogPort,
+                roleRepositoryPort);
         ReflectionTestUtils.setField(loginUserService, "accessExpirationSeconds", 900L);
         ReflectionTestUtils.setField(loginUserService, "refreshExpirationSeconds", 2592000L);
     }
@@ -76,6 +82,8 @@ class LoginUserUseCaseTest {
         when(refreshTokenGenerator.hash(expectedRefreshToken)).thenReturn("hash-value");
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        when(roleRepositoryPort.findById(nullable(UUID.class))).thenReturn(Optional.of(
+                Role.builder().roleId(UUID.randomUUID()).name("BUYER").build()));
 
         AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
 
@@ -159,6 +167,8 @@ class LoginUserUseCaseTest {
         when(refreshTokenGenerator.hash("refresh")).thenReturn("hash");
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        when(roleRepositoryPort.findById(nullable(UUID.class))).thenReturn(Optional.of(
+                Role.builder().roleId(UUID.randomUUID()).name("BUYER").build()));
 
         AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
 
@@ -263,6 +273,8 @@ class LoginUserUseCaseTest {
         when(refreshTokenGenerator.hash("refresh")).thenReturn("hash");
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        when(roleRepositoryPort.findById(nullable(UUID.class))).thenReturn(Optional.of(
+                Role.builder().roleId(UUID.randomUUID()).name("BUYER").build()));
 
         AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
 
@@ -295,6 +307,8 @@ class LoginUserUseCaseTest {
         when(refreshTokenGenerator.hash("refresh")).thenReturn("hash");
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        when(roleRepositoryPort.findById(nullable(UUID.class))).thenReturn(Optional.of(
+                Role.builder().roleId(UUID.randomUUID()).name("BUYER").build()));
 
         AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
 

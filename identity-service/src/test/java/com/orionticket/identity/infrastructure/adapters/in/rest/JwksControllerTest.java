@@ -65,6 +65,11 @@ class JwksControllerTest {
             }
 
             @Override
+            public Optional<com.orionticket.identity.domain.model.Role> findByName(String name) {
+                return Optional.empty();
+            }
+
+            @Override
             public List<com.orionticket.identity.domain.model.Role> findAll() {
                 return List.of();
             }

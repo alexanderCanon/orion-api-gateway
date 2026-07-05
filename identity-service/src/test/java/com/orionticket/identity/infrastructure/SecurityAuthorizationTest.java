@@ -190,6 +190,7 @@ class SecurityAuthorizationTest {
                 .tokenType("Bearer")
                 .expiresIn(900L)
                 .user(user)
+                .role(Role.builder().roleId(roleId).name("BUYER").permissions(List.of()).build())
                 .build();
         when(loginUserUseCase.login(eq("buyer@orionticket.com"), eq("password123"), any(), any()))
                 .thenReturn(authResult);

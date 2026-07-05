@@ -8,8 +8,10 @@ import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.model.RefreshToken;
+import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
+import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +31,7 @@ public class RefreshTokenService implements RefreshTokenUseCase {
     private final JwtProviderPort jwtProviderPort;
     private final RefreshTokenGeneratorPort refreshTokenGenerator;
     private final AuditLogPort auditLogPort;
+    private final RoleRepositoryPort roleRepositoryPort;
 
     @Value("${jwt.expiration:${JWT_EXPIRATION:900}}")
     private long accessExpirationSeconds;
@@ -85,6 +88,8 @@ public class RefreshTokenService implements RefreshTokenUseCase {
         refreshTokenRepository.save(token);
 
         String newAccessToken = jwtProviderPort.generateToken(user);
+        Role role = roleRepositoryPort.findById(user.getRoleId())
+                .orElseThrow(() -> new IllegalStateException("User role not found: " + user.getRoleId()));
         String newRawRefresh = refreshTokenGenerator.generate();
         String newHash = refreshTokenGenerator.hash(newRawRefresh);
         refreshTokenRepository.save(RefreshToken.builder()
@@ -108,6 +113,7 @@ public class RefreshTokenService implements RefreshTokenUseCase {
                 .tokenType(AuthResult.TOKEN_TYPE)
                 .expiresIn(accessExpirationSeconds)
                 .user(user)
+                .role(role)
                 .build();
     }
 }

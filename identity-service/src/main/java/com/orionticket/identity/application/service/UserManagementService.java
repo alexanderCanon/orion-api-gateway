@@ -4,11 +4,15 @@ import com.orionticket.identity.application.port.in.UserManagementUseCase;
 import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.IdentityEventPublisherPort;
 import com.orionticket.identity.domain.exception.RoleNotAllowedException;
+import com.orionticket.identity.domain.exception.RoleNotFoundException;
 import com.orionticket.identity.domain.exception.UserAlreadyExistsException;
 import com.orionticket.identity.domain.exception.UserNotFoundException;
+import com.orionticket.identity.domain.model.Role;
+import com.orionticket.identity.domain.model.RoleName;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.model.UserStatus;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
+import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,6 +29,7 @@ public class UserManagementService implements UserManagementUseCase {
     private final AuditLogPort auditLogPort;
     private final IdentityEventPublisherPort eventPublisherPort;
     private final RefreshTokenRepositoryPort refreshTokenRepositoryPort;
+    private final RoleRepositoryPort roleRepositoryPort;
 
     @Override
     @Transactional
@@ -48,6 +53,15 @@ public class UserManagementService implements UserManagementUseCase {
     public User updateUserRole(UUID userId, UUID newRoleId, UUID adminId) {
         User user = userRepositoryPort.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("Usuario no encontrado: " + userId));
+
+        // Validar que el rol exista (404 si no) y prohibir auto-modificación.
+        if (userId.equals(adminId)) {
+            throw new RoleNotAllowedException("Un usuario no puede modificar su propio rol.");
+        }
+        Role newRole = roleRepositoryPort.findById(newRoleId)
+                .orElseThrow(() -> new RoleNotFoundException("Rol no encontrado: " + newRoleId));
+        // El escalado a SUPER_ADMIN se controla con @PreAuthorize en el controller.
+        // Esta validación de dominio es defensa en profundidad: el rol debe existir.
 
         user.setRoleId(newRoleId);
 
@@ -111,11 +125,13 @@ public class UserManagementService implements UserManagementUseCase {
     @Override
     @Transactional
     public User createOrganizerStaff(UUID organizerId, String email, String passwordHash, String fullName, String phone, UUID roleId, UUID creatorId) {
-        // Validación de roles permitidos para staff (US-009)
-        String venueStaffId = "00000000-0000-0000-0000-000000000004";
-        String doorValidatorId = "00000000-0000-0000-0000-000000000005";
+        // Validación de roles permitidos para staff (US-009): resolver el rol
+        // por ID y validar que sea VENUE_STAFF o DOOR_VALIDATOR por nombre.
+        Role role = roleRepositoryPort.findById(roleId)
+                .orElseThrow(() -> new RoleNotFoundException("Rol no encontrado: " + roleId));
 
-        if (!roleId.toString().equals(venueStaffId) && !roleId.toString().equals(doorValidatorId)) {
+        if (!RoleName.VENUE_STAFF.value().equals(role.getName())
+                && !RoleName.DOOR_VALIDATOR.value().equals(role.getName())) {
             throw new RoleNotAllowedException("Rol no permitido para staff de organizador. Solo se permite VENUE_STAFF o DOOR_VALIDATOR.");
         }
 

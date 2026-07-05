@@ -8,8 +8,10 @@ import com.orionticket.identity.application.service.RefreshTokenService;
 import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.model.RefreshToken;
+import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
+import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.domain.port.out.UserRepositoryPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,13 +41,15 @@ class RefreshTokenServiceTest {
     private RefreshTokenGeneratorPort refreshTokenGenerator;
     @Mock
     private AuditLogPort auditLogPort;
+    @Mock
+    private RoleRepositoryPort roleRepositoryPort;
 
     private RefreshTokenService service;
 
     @BeforeEach
     void setUp() {
         service = new RefreshTokenService(refreshTokenRepository, userRepositoryPort,
-                jwtProviderPort, refreshTokenGenerator, auditLogPort);
+                jwtProviderPort, refreshTokenGenerator, auditLogPort, roleRepositoryPort);
         ReflectionTestUtils.setField(service, "accessExpirationSeconds", 900L);
         ReflectionTestUtils.setField(service, "refreshExpirationSeconds", 2592000L);
     }
@@ -72,6 +76,8 @@ class RefreshTokenServiceTest {
         when(refreshTokenGenerator.hash("new-raw")).thenReturn("new-hash");
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        when(roleRepositoryPort.findById(nullable(UUID.class))).thenReturn(Optional.of(
+                Role.builder().roleId(UUID.randomUUID()).name("BUYER").build()));
 
         AuthResult result = service.refresh("raw", "UA", "127.0.0.1");
 
