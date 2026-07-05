@@ -8,7 +8,7 @@
 CREATE TABLE refresh_tokens (
     token_id     UUID PRIMARY KEY,
     user_id      UUID NOT NULL REFERENCES users(user_id),
-    token_hash   CHAR(64) NOT NULL UNIQUE,        -- SHA-256 hex (64 chars), nunca el token en claro
+    token_hash   VARCHAR(64) NOT NULL UNIQUE,      -- SHA-256 hex (64 chars), nunca el token en claro
     parent_id    UUID REFERENCES refresh_tokens(token_id), -- cadena de rotación
     issued_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at   TIMESTAMP WITH TIME ZONE NOT NULL,
