@@ -69,7 +69,7 @@ public class LoginUserService implements LoginUserUseCase {
         if (user.isLocked()) {
             long retryAfter = user.remainingLockSeconds();
             auditLogPort.logAction(user.getUserId(), "ACCOUNT_LOCKED_LOGIN_ATTEMPT",
-                    "Locked account login attempt for " + email);
+                    "Locked account login attempt for " + email, ipAddress, userAgent);
             throw new AccountLockedException(retryAfter);
         }
 
@@ -78,10 +78,12 @@ public class LoginUserService implements LoginUserUseCase {
             boolean lockedNow = user.registerFailedLogin();
             userRepositoryPort.save(user);
             auditLogPort.logAction(user.getUserId(), "LOGIN_FAILED",
-                    "Failed login attempt for " + email + " (attempt #" + user.getFailedLoginAttempts() + ")");
+                    "Failed login attempt for " + email + " (attempt #" + user.getFailedLoginAttempts() + ")",
+                    ipAddress, userAgent);
             if (lockedNow) {
                 auditLogPort.logAction(user.getUserId(), "ACCOUNT_LOCKED",
-                        "Account " + email + " locked after " + user.getFailedLoginAttempts() + " failed attempts");
+                        "Account " + email + " locked after " + user.getFailedLoginAttempts() + " failed attempts",
+                        ipAddress, userAgent);
             }
             throw new InvalidCredentialsException("Correo o contraseña incorrectos.");
         }
@@ -116,6 +118,10 @@ public class LoginUserService implements LoginUserUseCase {
                 .userAgent(userAgent)
                 .ipAddress(ipAddress)
                 .build());
+
+        // 8. Auditar login exitoso (con IP y user-agent para investigación).
+        auditLogPort.logAction(user.getUserId(), "LOGIN_SUCCESS",
+                "Successful login for " + email, ipAddress, userAgent);
 
         return AuthResult.builder()
                 .accessToken(accessToken)

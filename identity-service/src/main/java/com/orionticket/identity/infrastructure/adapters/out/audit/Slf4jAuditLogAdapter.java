@@ -6,15 +6,23 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
+/**
+ * Adaptador SLF4J de {@link AuditLogPort}.
+ *
+ * <p>Registra eventos de auditoría como INFO estructurado con IP y
+ * user-agent cuando están disponibles. En mediano plazo esto debería
+ * persistir en una tabla {@code audit_log} o publicarse a RabbitMQ
+ * para no depender de la rotación de logs (ver ADR-012).</p>
+ */
 @Slf4j
 @Component
 public class Slf4jAuditLogAdapter implements AuditLogPort {
 
     @Override
-    public void logAction(UUID adminId, String action, String details) {
-        // Para el MVP, y dado que AuditLog es cross-cutting sin DB definida aún (ADR-012),
-        // registramos como INFO estructurado. Más adelante puede ser enviado por RabbitMQ
-        // o guardado en el datastore centralizado.
-        log.info("AUDIT_LOG | ActorID: {} | Action: {} | Details: {}", adminId, action, details);
+    public void logAction(UUID actorId, String action, String details, String ipAddress, String userAgent) {
+        log.info("AUDIT_LOG | ActorID: {} | Action: {} | Details: {} | IP: {} | UA: {}",
+                actorId, action, details,
+                ipAddress != null ? ipAddress : "-",
+                userAgent != null ? userAgent : "-");
     }
 }

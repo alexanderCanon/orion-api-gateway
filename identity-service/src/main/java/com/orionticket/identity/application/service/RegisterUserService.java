@@ -1,6 +1,7 @@
 package com.orionticket.identity.application.service;
 
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.IdentityEventPublisherPort;
 import com.orionticket.identity.application.port.out.PasswordHasherPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
@@ -29,6 +30,7 @@ public class RegisterUserService implements RegisterUserUseCase {
     private final RefreshTokenGeneratorPort tokenGenerator;
     private final OneTimeTokenRepositoryPort oneTimeTokenRepository;
     private final IdentityEventPublisherPort eventPublisher;
+    private final AuditLogPort auditLogPort;
 
     // Asumiremos un UUID temporal para el rol de Comprador.
     // En produccion real esto se busca en la BD de roles.
@@ -60,7 +62,11 @@ public class RegisterUserService implements RegisterUserUseCase {
             throw new UserAlreadyExistsException("El correo " + email + " ya está registrado.");
         }
 
-        // 5. Generar token de verificación de email y publicar evento
+        // 5. Auditar registro
+        auditLogPort.logAction(savedUser.getUserId(), "USER_REGISTERED",
+                "New buyer registered: " + email);
+
+        // 6. Generar token de verificación de email y publicar evento
         try {
             String rawToken = tokenGenerator.generate();
             String tokenHash = tokenGenerator.hash(rawToken);

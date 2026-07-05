@@ -4,6 +4,7 @@ import com.orionticket.identity.domain.exception.AccountDisabledException;
 import com.orionticket.identity.domain.exception.AccountLockedException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.exception.RoleNotAllowedException;
+import com.orionticket.identity.domain.exception.RoleNotFoundException;
 import com.orionticket.identity.domain.exception.UserAlreadyExistsException;
 import com.orionticket.identity.domain.exception.UserNotFoundException;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.ErrorResponse;
@@ -69,6 +70,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(RoleNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleRoleNotFound(RoleNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND", ex.getMessage(), request);
     }
 
     @ExceptionHandler(RoleNotAllowedException.class)

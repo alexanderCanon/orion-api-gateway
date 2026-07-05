@@ -1,6 +1,7 @@
 package com.orionticket.identity.application;
 
 import com.orionticket.identity.application.port.in.AuthResult;
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.JwtProviderPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.application.service.RefreshTokenService;
@@ -36,13 +37,15 @@ class RefreshTokenServiceTest {
     private JwtProviderPort jwtProviderPort;
     @Mock
     private RefreshTokenGeneratorPort refreshTokenGenerator;
+    @Mock
+    private AuditLogPort auditLogPort;
 
     private RefreshTokenService service;
 
     @BeforeEach
     void setUp() {
         service = new RefreshTokenService(refreshTokenRepository, userRepositoryPort,
-                jwtProviderPort, refreshTokenGenerator);
+                jwtProviderPort, refreshTokenGenerator, auditLogPort);
         ReflectionTestUtils.setField(service, "accessExpirationSeconds", 900L);
         ReflectionTestUtils.setField(service, "refreshExpirationSeconds", 2592000L);
     }

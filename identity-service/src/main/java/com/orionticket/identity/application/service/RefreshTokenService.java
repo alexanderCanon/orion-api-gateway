@@ -2,6 +2,7 @@ package com.orionticket.identity.application.service;
 
 import com.orionticket.identity.application.port.in.AuthResult;
 import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.JwtProviderPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.domain.exception.AccountDisabledException;
@@ -27,6 +28,7 @@ public class RefreshTokenService implements RefreshTokenUseCase {
     private final UserRepositoryPort userRepositoryPort;
     private final JwtProviderPort jwtProviderPort;
     private final RefreshTokenGeneratorPort refreshTokenGenerator;
+    private final AuditLogPort auditLogPort;
 
     @Value("${jwt.expiration:${JWT_EXPIRATION:900}}")
     private long accessExpirationSeconds;
@@ -55,6 +57,9 @@ public class RefreshTokenService implements RefreshTokenUseCase {
         // toda la cadena del usuario para invalidar al atacante.
         if (token.isRevoked()) {
             refreshTokenRepository.revokeChain(token.getTokenId());
+            auditLogPort.logAction(token.getUserId(), "TOKEN_REFRESH_REUSE_DETECTED",
+                    "Reuse of rotated refresh token detected; chain revoked for user " + token.getUserId(),
+                    ipAddress, userAgent);
             throw new InvalidCredentialsException("Invalid or expired refresh token.");
         }
 
@@ -93,6 +98,9 @@ public class RefreshTokenService implements RefreshTokenUseCase {
                 .userAgent(userAgent)
                 .ipAddress(ipAddress)
                 .build());
+
+        auditLogPort.logAction(user.getUserId(), "TOKEN_REFRESHED",
+                "Token refreshed for " + user.getEmail(), ipAddress, userAgent);
 
         return AuthResult.builder()
                 .accessToken(newAccessToken)

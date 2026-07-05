@@ -1,6 +1,7 @@
 package com.orionticket.identity.application.service;
 
 import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.domain.model.RefreshToken;
 import com.orionticket.identity.domain.port.out.RefreshTokenRepositoryPort;
@@ -16,6 +17,7 @@ public class LogoutService implements LogoutUseCase {
 
     private final RefreshTokenRepositoryPort refreshTokenRepository;
     private final RefreshTokenGeneratorPort refreshTokenGenerator;
+    private final AuditLogPort auditLogPort;
 
     @Override
     @Transactional
@@ -44,9 +46,13 @@ public class LogoutService implements LogoutUseCase {
 
         if (all) {
             refreshTokenRepository.revokeAllForUser(token.getUserId());
+            auditLogPort.logAction(token.getUserId(), "LOGOUT_ALL",
+                    "All sessions revoked for user " + token.getUserId());
         } else {
             token.revoke();
             refreshTokenRepository.save(token);
+            auditLogPort.logAction(token.getUserId(), "LOGOUT",
+                    "Session revoked for user " + token.getUserId());
         }
     }
 }

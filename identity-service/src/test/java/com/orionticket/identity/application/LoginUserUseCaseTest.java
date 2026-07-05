@@ -109,7 +109,7 @@ class LoginUserUseCaseTest {
 
         assertEquals(1, user.getFailedLoginAttempts());
         verify(userRepositoryPort).save(user);
-        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString());
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString(), eq("127.0.0.1"), eq("UA"));
         verify(refreshTokenRepository, never()).save(any());
     }
 
@@ -205,7 +205,7 @@ class LoginUserUseCaseTest {
         verify(passwordHasherPort, never()).matches(anyString(), anyString());
         verify(jwtProviderPort, never()).generateToken(any());
         verify(refreshTokenRepository, never()).save(any());
-        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED_LOGIN_ATTEMPT"), anyString());
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED_LOGIN_ATTEMPT"), anyString(), eq("127.0.0.1"), eq("UA"));
     }
 
     @Test
@@ -234,8 +234,8 @@ class LoginUserUseCaseTest {
         assertNotNull(user.getLockedUntil());
         assertTrue(user.isLocked());
         verify(userRepositoryPort).save(user);
-        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString());
-        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED"), anyString());
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString(), eq("127.0.0.1"), eq("UA"));
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED"), anyString(), eq("127.0.0.1"), eq("UA"));
     }
 
     @Test

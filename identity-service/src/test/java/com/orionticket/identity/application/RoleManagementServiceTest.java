@@ -2,6 +2,7 @@ package com.orionticket.identity.application;
 
 import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.service.RoleManagementService;
+import com.orionticket.identity.domain.exception.RoleNotFoundException;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import org.junit.jupiter.api.Test;
@@ -73,7 +74,7 @@ class RoleManagementServiceTest {
         UUID roleId = UUID.randomUUID();
         when(roleRepositoryPort.findById(roleId)).thenReturn(Optional.empty());
 
-        assertThrows(RuntimeException.class,
+        assertThrows(RoleNotFoundException.class,
                 () -> roleManagementService.updateRole(roleId, "X", List.of(), UUID.randomUUID()));
     }
 

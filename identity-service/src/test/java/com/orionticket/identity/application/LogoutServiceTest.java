@@ -1,5 +1,6 @@
 package com.orionticket.identity.application;
 
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.application.service.LogoutService;
 import com.orionticket.identity.domain.model.RefreshToken;
@@ -24,12 +25,14 @@ class LogoutServiceTest {
     private RefreshTokenRepositoryPort refreshTokenRepository;
     @Mock
     private RefreshTokenGeneratorPort refreshTokenGenerator;
+    @Mock
+    private AuditLogPort auditLogPort;
 
     private LogoutService service;
 
     @BeforeEach
     void setUp() {
-        service = new LogoutService(refreshTokenRepository, refreshTokenGenerator);
+        service = new LogoutService(refreshTokenRepository, refreshTokenGenerator, auditLogPort);
     }
 
     @Test

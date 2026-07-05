@@ -9,6 +9,7 @@
 > - ✅ **Fase 1 — Refresh tokens, revocación y logout: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 > - ✅ **Fase 2 — Rate limiting y protección de fuerza bruta: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 > - ✅ **Fase 3 — Recover password + verificación de email: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
+> - ✅ **Fase 4 — Auditoría y transacciones: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 
 ---
 
@@ -667,3 +668,42 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - `mvn compile` ✅
 - Tests unitarios ✅ (96 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. La migración V7, el mapeo JPA de `one_time_tokens` y las queries JPQL deben validarse contra PostgreSQL real antes de desplegar.
+
+---
+
+### Fase 4 — Auditoría y transacciones (COMPLETADA 2026-07-05)
+
+#### 4.1 Auditoría de autenticación ✅
+- **`AuditLogPort`** — extendido con método `logAction(actorId, action, details, ipAddress, userAgent)` que incluye contexto de red (IP + user-agent). El método de 3 args se mantiene como `default` que delega con `null`/`null` para acciones administrativas donde la IP no está disponible.
+- **`Slf4jAuditLogAdapter`** — actualizado para loguear IP y user-agent estructurado (`IP: {} | UA: {}`).
+- **Eventos nuevos añadidos a los servicios:**
+  - `LoginUserService`: `LOGIN_SUCCESS` (con IP + UA), `LOGIN_FAILED` y `ACCOUNT_LOCKED` actualizados para incluir IP + UA, `ACCOUNT_LOCKED_LOGIN_ATTEMPT` actualizado.
+  - `RegisterUserService`: `USER_REGISTERED` (tras persistir el usuario).
+  - `RefreshTokenService`: `TOKEN_REFRESHED` (refresh exitoso con IP + UA), `TOKEN_REFRESH_REUSE_DETECTED` (reuse de token rotado → revoca cadena, con IP + UA).
+  - `LogoutService`: `LOGOUT` (revoca token individual), `LOGOUT_ALL` (revoca todas las sesiones).
+- **Nunca se loguea** la contraseña ni el token en claro.
+- **Mediano plazo:** persistir en tabla `audit_log` o publicar a RabbitMQ en lugar de solo SLF4J (el `Slf4jAuditLogAdapter` actual se pierde con la rotación de logs).
+
+#### 4.2 Transacciones y race conditions ✅
+- **`RoleManagementService`** — añadido `@Transactional` a `createRole`, `updateRole`, `deleteRole`. Captura `DataIntegrityViolationException` en `createRole` para race conditions de nombre de rol duplicado.
+- **`RoleNotFoundException`** — nueva excepción de dominio que reemplaza los `RuntimeException("Role not found")` en `RoleManagementService` (líneas 37 y 50 del código original).
+- **`GlobalExceptionHandler`** — añadido handler para `RoleNotFoundException` → `404 NOT_FOUND` con código `ROLE_NOT_FOUND`.
+- **`RegisterUserService`** — ya tenía `@Transactional` y captura de `DataIntegrityViolationException` (Fase 3).
+- **`UserManagementService`** — ya tiene `@Transactional` en todos los métodos de escritura (verificado).
+- **Todos los servicios de Fase 1-3** — ya tienen `@Transactional` (verificado: `LoginUserService`, `RefreshTokenService`, `LogoutService`, `RecoverPasswordService`, `ResetPasswordService`, `VerifyEmailService`, `ResendVerificationService`, `ChangePasswordService`).
+
+#### DTOs corregidos (regla AGENTS.md: no usar @Data) ✅
+- Los 5 DTOs nuevos de Fase 3 (`RecoverRequest`, `ResetPasswordRequest`, `VerifyEmailRequest`, `ResendVerificationRequest`, `ChangePasswordRequest`) fueron actualizados de `@Data` a `@Getter @Setter @NoArgsConstructor` según la regla del proyecto.
+
+#### Tests ✅
+- **`LoginUserUseCaseTest`** — actualizado: verificaciones de `logAction` cambiadas de 3-arg a 5-arg (con IP + UA) para matchear la nueva firma.
+- **`RefreshTokenServiceTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 5 dependencias.
+- **`LogoutServiceTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 3 dependencias.
+- **`RegisterUserUseCaseTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 6 dependencias.
+- **`RoleManagementServiceTest`** — actualizado: `assertThrows(RuntimeException.class)` → `assertThrows(RoleNotFoundException.class)` en `updateRoleThrowsWhenNotFound` y `deleteRoleThrowsWhenNotFound`.
+- **Resultado:** 100 tests, 0 fallos, BUILD SUCCESS.
+
+#### Verificación
+- `mvn compile` ✅
+- Tests unitarios ✅ (100 tests, 0 fallos).
+- Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker.

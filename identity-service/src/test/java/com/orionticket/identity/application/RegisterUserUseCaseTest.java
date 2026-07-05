@@ -1,5 +1,6 @@
 package com.orionticket.identity.application;
 
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.IdentityEventPublisherPort;
 import com.orionticket.identity.application.port.out.PasswordHasherPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
@@ -35,13 +36,15 @@ class RegisterUserUseCaseTest {
     private OneTimeTokenRepositoryPort oneTimeTokenRepository;
     @Mock
     private IdentityEventPublisherPort eventPublisher;
+    @Mock
+    private AuditLogPort auditLogPort;
 
     private RegisterUserService registerUserService;
 
     @BeforeEach
     void setUp() {
         registerUserService = new RegisterUserService(userRepositoryPort, passwordHasherPort,
-                tokenGenerator, oneTimeTokenRepository, eventPublisher);
+                tokenGenerator, oneTimeTokenRepository, eventPublisher, auditLogPort);
         ReflectionTestUtils.setField(registerUserService, "verificationTokenTtlSeconds", 86400L);
     }
 
