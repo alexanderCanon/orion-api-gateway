@@ -7,6 +7,7 @@
 > **Estado de implementación:**
 > - ✅ **Fase 0 — Quick wins: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 > - ✅ **Fase 1 — Refresh tokens, revocación y logout: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
+> - ✅ **Fase 2 — Rate limiting y protección de fuerza bruta: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 
 ---
 
@@ -391,7 +392,7 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - [x] ~~Usuario `SUSPENDED` no puede hacer login ni refresh~~ (Fase 0 + Fase 1 — validado con tests unitarios)
 - [ ] Flujo completo: register → email de verificación → verify → login → refresh → logout (test de integración; logout y refresh listos, falta verify en Fase 3)
 - [ ] Recover password end-to-end con token de un solo uso e invalidación de sesiones
-- [ ] 5 logins fallidos → cuenta bloqueada temporalmente (test)
+- [x] ~~5 logins fallidos → cuenta bloqueada temporalmente (test)~~ (Fase 2 — validado con tests unitarios: lockout en 5 intentos, backoff progresivo, reset en login exitoso)
 - [x] ~~Respuestas de `/register` no permiten enumeración por timing~~ (Fase 0 — BCrypt dummy ejecutado en login; registro aún devuelve 409, revisar en Fase 3)
 - [x] ~~Ningún 500 expone `ex.getMessage()`; todos los errores llevan `traceId`~~ (Fase 0)
 - [x] ~~`grep -r "AppSecret789\|guest" src/main/resources` → sin resultados~~ (Fase 0 — `AppSecret789` y `guest/guest` en prod eliminados)
@@ -519,3 +520,50 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - `mvn compile` ✅
 - Tests unitarios ✅ (32 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. **Importante:** la CTE recursiva de `revokeChain` y la migración V5 deben validarse contra PostgreSQL real antes de desplegar.
+
+---
+
+### Fase 2 — Rate limiting y protección de fuerza bruta (COMPLETADA 2026-07-05)
+
+#### 2.1 Lockout por cuenta en BD (C4) ✅
+- **Migración `V6__login_attempts.sql`** — añade `failed_login_attempts INT NOT NULL DEFAULT 0` y `locked_until TIMESTAMPTZ` a `users`. El estado de lockout sobrevive reinicios y se comparte entre réplicas.
+- **`UserJpaEntity`** — nuevos campos `failedLoginAttempts` y `lockedUntil` mapeados a las columnas.
+- **`UserRepositoryAdapter`** — mapeo bidireccional de los nuevos campos.
+- **`User` (dominio)** — nuevos métodos con lógica de lockout y backoff progresivo:
+  - `isLocked()` — verifica si `lockedUntil > now()`.
+  - `registerFailedLogin()` — incrementa contador; al alcanzar un múltiplo del umbral (5) fija `lockedUntil` con backoff: **1.er bloqueo → 15 min, 2.º → 1 h, 3.º y siguientes → 24 h**.
+  - `resetFailedLoginAttempts()` — resetea contador y limpia lockout (llamado en login exitoso).
+  - `remainingLockSeconds()` — segundos restantes de bloqueo para el header `Retry-After`.
+- **`AccountLockedException`** — nueva excepción de dominio que transporta `retryAfterSeconds`.
+- **`LoginUserService`** — flujo de login actualizado:
+  1. Si la cuenta está bloqueada → `AccountLockedException` (429 + Retry-After) **antes** de validar contraseña. Audita `ACCOUNT_LOCKED_LOGIN_ATTEMPT`.
+  2. Si la contraseña es incorrecta → `registerFailedLogin()`, persiste, audita `LOGIN_FAILED` y, si se disparó el bloqueo, audita `ACCOUNT_LOCKED`.
+  3. Si el login es exitoso → resetea el contador si era > 0 y persiste.
+- **`GlobalExceptionHandler`** — handler para `AccountLockedException` → **429 Too Many Requests** con header `Retry-After` y body `ErrorResponse` con `errorCode: ACCOUNT_LOCKED`.
+- **Decisión de producto:** 429 + Retry-After (mejor UX para usuarios legítimos; un atacante ya sabe que la cuenta existe tras 5 intentos fallidos).
+
+#### 2.2 Rate limiting por IP con Bucket4j (C4) ✅
+- **Dependencia:** `com.bucket4j:bucket4j_jdk17-core:8.18.0` añadida al `pom.xml`.
+- **`RateLimitFilter`** — filtro servlet (`OncePerRequestFilter`) con token-bucket Bucket4j en memoria:
+  - Protege `/v1/auth/login` y `/v1/auth/register`.
+  - Bucket por IP (resuelve `X-Forwarded-For` con fallback a `getRemoteAddr()`).
+  - **Configurable:** `security.rate-limit.capacity` (default 10) y `security.rate-limit.refill-minutes` (default 1) → 10 req/min por IP.
+  - Respuesta 429 con header `Retry-After` y body JSON consistente con `ErrorResponse` (`errorCode: RATE_LIMIT_EXCEEDED`).
+  - `@Order(Ordered.HIGHEST_PRECEDENCE + 10)` — corre después de `CorrelationIdFilter` (que tiene `HIGHEST_PRECEDENCE`) para que el traceId esté disponible en la respuesta.
+- **`CorrelationIdFilter`** — añadido `@Order(Ordered.HIGHEST_PRECEDENCE)` para garantizar orden correcto.
+- **`application.yml`** — sección `security.rate-limit` con defaults configurables vía variables de entorno.
+- **Limitación documentada:** el estado es en memoria; con múltiples réplicas cada una mantiene su propio contador. El rate limiting real por IP debe vivir en el gateway (Traefik `rateLimit` middleware). Esto es defensa en profundidad.
+
+#### Tests ✅
+- **`LoginUserUseCaseTest`** — actualizado (9 tests): incluye mock de `AuditLogPort`; nuevos tests de lockout:
+  - Cuenta bloqueada → `AccountLockedException` con retryAfter > 0, no valida contraseña.
+  - 5.º intento fallido → dispara lockout, audita `ACCOUNT_LOCKED`.
+  - Login exitoso tras intentos fallidos → resetea contador.
+  - Lock expirado + contraseña correcta → login exitoso y reset.
+- **`RateLimitFilterTest`** (nuevo, 6 tests): path no protegido pasa, límite dentro de capacidad pasa, 4.ª petición excede límite → 429 + Retry-After, buckets independientes por IP, `X-Forwarded-For` resuelto correctamente, `/v1/auth/register` también limitado.
+- **Resultado:** 76 tests, 0 fallos, BUILD SUCCESS.
+
+#### Verificación
+- `mvn compile` ✅
+- Tests unitarios ✅ (76 tests, 0 fallos).
+- Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. La migración V6 y el mapeo JPA de los nuevos campos deben validarse contra PostgreSQL real antes de desplegar.

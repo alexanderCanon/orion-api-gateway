@@ -1,6 +1,7 @@
 package com.orionticket.identity.infrastructure.adapters.in.rest;
 
 import com.orionticket.identity.domain.exception.AccountDisabledException;
+import com.orionticket.identity.domain.exception.AccountLockedException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.exception.RoleNotAllowedException;
 import com.orionticket.identity.domain.exception.UserAlreadyExistsException;
@@ -48,6 +49,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccountDisabledException.class)
     public ResponseEntity<ErrorResponse> handleAccountDisabled(AccountDisabledException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "ACCOUNT_DISABLED", ex.getMessage(), request);
+    }
+
+    /**
+     * Cuenta bloqueada por exceder el umbral de intentos fallidos (C4).
+     * Devuelve 429 Too Many Requests con el header {@code Retry-After}
+     * indicando cuántos segundos faltan para que expire el bloqueo.
+     */
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ErrorResponse> handleAccountLocked(AccountLockedException ex, HttpServletRequest request) {
+        long retryAfter = Math.max(1L, ex.getRetryAfterSeconds());
+        ResponseEntity<ErrorResponse> response = build(HttpStatus.TOO_MANY_REQUESTS,
+                "ACCOUNT_LOCKED", ex.getMessage(), request);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(retryAfter))
+                .body(response.getBody());
     }
 
     @ExceptionHandler(UserNotFoundException.class)

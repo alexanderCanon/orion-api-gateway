@@ -57,6 +57,14 @@ jwt:
     expiration: ${JWT_EXPIRATION:900}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:2592000}
 
+# Fase 2 (C4): Rate limiting por IP — defensa en profundidad contra fuerza
+# bruta. El rate limiting principal debe vivir en el gateway (Traefik);
+# esto complementa a nivel de servicio. Bucket token-bucket en memoria.
+security:
+    rate-limit:
+        capacity: ${RATE_LIMIT_CAPACITY:10}
+        refill-minutes: ${RATE_LIMIT_REFILL_MINUTES:1}
+
 management:
     endpoints:
         web:

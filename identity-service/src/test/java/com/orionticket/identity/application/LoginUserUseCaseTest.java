@@ -1,11 +1,13 @@
 package com.orionticket.identity.application;
 
 import com.orionticket.identity.application.port.in.AuthResult;
+import com.orionticket.identity.application.port.out.AuditLogPort;
 import com.orionticket.identity.application.port.out.JwtProviderPort;
 import com.orionticket.identity.application.port.out.PasswordHasherPort;
 import com.orionticket.identity.application.port.out.RefreshTokenGeneratorPort;
 import com.orionticket.identity.application.service.LoginUserService;
 import com.orionticket.identity.domain.exception.AccountDisabledException;
+import com.orionticket.identity.domain.exception.AccountLockedException;
 import com.orionticket.identity.domain.exception.InvalidCredentialsException;
 import com.orionticket.identity.domain.model.RefreshToken;
 import com.orionticket.identity.domain.model.User;
@@ -18,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,13 +40,15 @@ class LoginUserUseCaseTest {
     private RefreshTokenGeneratorPort refreshTokenGenerator;
     @Mock
     private RefreshTokenRepositoryPort refreshTokenRepository;
+    @Mock
+    private AuditLogPort auditLogPort;
 
     private LoginUserService loginUserService;
 
     @BeforeEach
     void setUp() {
         loginUserService = new LoginUserService(userRepositoryPort, passwordHasherPort,
-                jwtProviderPort, refreshTokenGenerator, refreshTokenRepository);
+                jwtProviderPort, refreshTokenGenerator, refreshTokenRepository, auditLogPort);
         ReflectionTestUtils.setField(loginUserService, "accessExpirationSeconds", 900L);
         ReflectionTestUtils.setField(loginUserService, "refreshExpirationSeconds", 2592000L);
     }
@@ -61,6 +66,7 @@ class LoginUserUseCaseTest {
                 .email(email)
                 .passwordHash(hashedPassword)
                 .status("ACTIVE")
+                .failedLoginAttempts(0)
                 .build();
 
         when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
@@ -82,15 +88,17 @@ class LoginUserUseCaseTest {
     }
 
     @Test
-    void givenInvalidPassword_whenLogin_thenThrowsException() {
+    void givenInvalidPassword_whenLogin_thenThrowsExceptionAndIncrementsCounter() {
         String email = "test@example.com";
         String rawPassword = "wrongPassword";
         String hashedPassword = "hashedPassword";
 
         User user = User.builder()
+                .userId(java.util.UUID.randomUUID())
                 .email(email)
                 .passwordHash(hashedPassword)
                 .status("ACTIVE")
+                .failedLoginAttempts(0)
                 .build();
 
         when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
@@ -98,6 +106,10 @@ class LoginUserUseCaseTest {
 
         assertThrows(InvalidCredentialsException.class,
                 () -> loginUserService.login(email, rawPassword, "UA", "127.0.0.1"));
+
+        assertEquals(1, user.getFailedLoginAttempts());
+        verify(userRepositoryPort).save(user);
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString());
         verify(refreshTokenRepository, never()).save(any());
     }
 
@@ -111,6 +123,7 @@ class LoginUserUseCaseTest {
                 .email(email)
                 .passwordHash(hashedPassword)
                 .status("SUSPENDED")
+                .failedLoginAttempts(0)
                 .build();
 
         when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
@@ -133,6 +146,7 @@ class LoginUserUseCaseTest {
                 .email(email)
                 .passwordHash(hashedPassword)
                 .status("UNVERIFIED")
+                .failedLoginAttempts(0)
                 .build();
 
         when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
@@ -162,5 +176,127 @@ class LoginUserUseCaseTest {
         verify(passwordHasherPort).matches(eq(rawPassword), anyString());
         verify(jwtProviderPort, never()).generateToken(any());
         verify(refreshTokenRepository, never()).save(any());
+    }
+
+    // --- Tests de lockout por fuerza bruta (Fase 2, C4) ---
+
+    @Test
+    void givenLockedAccount_whenLogin_thenThrowsAccountLockedWithRetryAfter() {
+        String email = "locked@example.com";
+        String rawPassword = "password123";
+        String hashedPassword = "hashedPassword";
+
+        User user = User.builder()
+                .userId(java.util.UUID.randomUUID())
+                .email(email)
+                .passwordHash(hashedPassword)
+                .status("ACTIVE")
+                .failedLoginAttempts(5)
+                .lockedUntil(Instant.now().plusSeconds(600))
+                .build();
+
+        when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
+
+        AccountLockedException ex = assertThrows(AccountLockedException.class,
+                () -> loginUserService.login(email, rawPassword, "UA", "127.0.0.1"));
+
+        assertTrue(ex.getRetryAfterSeconds() > 0);
+        // No debe validar la contraseña ni generar tokens si la cuenta está bloqueada.
+        verify(passwordHasherPort, never()).matches(anyString(), anyString());
+        verify(jwtProviderPort, never()).generateToken(any());
+        verify(refreshTokenRepository, never()).save(any());
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED_LOGIN_ATTEMPT"), anyString());
+    }
+
+    @Test
+    void givenFiveFailedAttempts_whenFifthFailure_thenAccountGetsLocked() {
+        String email = "bruteforce@example.com";
+        String rawPassword = "wrongPassword";
+        String hashedPassword = "hashedPassword";
+
+        // El usuario ya tiene 4 intentos fallidos; el 5.º dispara el lockout.
+        User user = User.builder()
+                .userId(java.util.UUID.randomUUID())
+                .email(email)
+                .passwordHash(hashedPassword)
+                .status("ACTIVE")
+                .failedLoginAttempts(4)
+                .lockedUntil(null)
+                .build();
+
+        when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordHasherPort.matches(rawPassword, hashedPassword)).thenReturn(false);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> loginUserService.login(email, rawPassword, "UA", "127.0.0.1"));
+
+        assertEquals(5, user.getFailedLoginAttempts());
+        assertNotNull(user.getLockedUntil());
+        assertTrue(user.isLocked());
+        verify(userRepositoryPort).save(user);
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_FAILED"), anyString());
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("ACCOUNT_LOCKED"), anyString());
+    }
+
+    @Test
+    void givenSuccessfulLoginAfterFailedAttempts_thenCounterIsReset() {
+        String email = "recovered@example.com";
+        String rawPassword = "correctPassword";
+        String hashedPassword = "hashedPassword";
+
+        User user = User.builder()
+                .userId(java.util.UUID.randomUUID())
+                .email(email)
+                .passwordHash(hashedPassword)
+                .status("ACTIVE")
+                .failedLoginAttempts(3)
+                .lockedUntil(null)
+                .build();
+
+        when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordHasherPort.matches(rawPassword, hashedPassword)).thenReturn(true);
+        when(jwtProviderPort.generateToken(user)).thenReturn("jwt");
+        when(refreshTokenGenerator.generate()).thenReturn("refresh");
+        when(refreshTokenGenerator.hash("refresh")).thenReturn("hash");
+        when(refreshTokenRepository.save(any(RefreshToken.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
+
+        assertEquals("jwt", result.accessToken());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
+        verify(userRepositoryPort).save(user);
+    }
+
+    @Test
+    void givenExpiredLock_whenLoginWithCorrectPassword_thenSucceedsAndResets() {
+        String email = "expiredlock@example.com";
+        String rawPassword = "correctPassword";
+        String hashedPassword = "hashedPassword";
+
+        // El lockout ya expiró (lockedUntil en el pasado).
+        User user = User.builder()
+                .userId(java.util.UUID.randomUUID())
+                .email(email)
+                .passwordHash(hashedPassword)
+                .status("ACTIVE")
+                .failedLoginAttempts(5)
+                .lockedUntil(Instant.now().minusSeconds(60))
+                .build();
+
+        when(userRepositoryPort.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordHasherPort.matches(rawPassword, hashedPassword)).thenReturn(true);
+        when(jwtProviderPort.generateToken(user)).thenReturn("jwt");
+        when(refreshTokenGenerator.generate()).thenReturn("refresh");
+        when(refreshTokenGenerator.hash("refresh")).thenReturn("hash");
+        when(refreshTokenRepository.save(any(RefreshToken.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        AuthResult result = loginUserService.login(email, rawPassword, "UA", "127.0.0.1");
+
+        assertEquals("jwt", result.accessToken());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
     }
 }

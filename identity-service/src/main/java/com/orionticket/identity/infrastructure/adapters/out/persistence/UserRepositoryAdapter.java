@@ -27,8 +27,10 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
                 .roleId(user.getRoleId())
                 .organizerId(user.getOrganizerId())
                 .createdAt(user.getCreatedAt())
+                .failedLoginAttempts(user.getFailedLoginAttempts())
+                .lockedUntil(user.getLockedUntil())
                 .build();
-        
+
         UserJpaEntity savedEntity = repository.save(entity);
         return mapToDomain(savedEntity);
     }
@@ -61,6 +63,8 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
                 .roleId(entity.getRoleId())
                 .organizerId(entity.getOrganizerId())
                 .createdAt(entity.getCreatedAt())
+                .failedLoginAttempts(entity.getFailedLoginAttempts())
+                .lockedUntil(entity.getLockedUntil())
                 .build();
     }
 }

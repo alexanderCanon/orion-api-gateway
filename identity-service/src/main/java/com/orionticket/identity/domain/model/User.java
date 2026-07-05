@@ -3,12 +3,16 @@ package com.orionticket.identity.domain.model;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.UUID;
 
 @Data
 @Builder
 public class User {
+    /** Umbral de intentos fallidos consecutivos que dispara el lockout. */
+    public static final int LOCKOUT_THRESHOLD = 5;
+
     private UUID userId;
     private String email;
     private String passwordHash;
@@ -18,6 +22,8 @@ public class User {
     private UUID roleId;
     private UUID organizerId;
     private ZonedDateTime createdAt;
+    private int failedLoginAttempts;
+    private Instant lockedUntil;
 
     /**
      * Regla de Negocio: Un nuevo comprador siempre inicia como UNVERIFIED.
@@ -80,6 +86,68 @@ public class User {
 
     public boolean isSuspended() {
         return UserStatus.SUSPENDED.name().equals(this.status);
+    }
+
+    // --- Lockout por fuerza bruta (Fase 2, C4) ---
+
+    /**
+     * Indica si la cuenta está temporalmente bloqueada por intentos fallidos.
+     */
+    public boolean isLocked() {
+        return lockedUntil != null && lockedUntil.isAfter(Instant.now());
+    }
+
+    /**
+     * Registra un intento de login fallido. Incrementa el contador y, si se
+     * alcanza un múltiplo del umbral ({@value #LOCKOUT_THRESHOLD}), fija
+     * {@code lockedUntil} con backoff progresivo:
+     * <ul>
+     *   <li>1.er bloqueo (5 fallos) → 15 min</li>
+     *   <li>2.º bloqueo (10 fallos) → 1 h</li>
+     *   <li>3.º y siguientes (15+) → 24 h</li>
+     * </ul>
+     *
+     * @return {@code true} si este intento disparó un nuevo bloqueo.
+     */
+    public boolean registerFailedLogin() {
+        this.failedLoginAttempts++;
+        if (this.failedLoginAttempts % LOCKOUT_THRESHOLD == 0) {
+            this.lockedUntil = Instant.now().plusSeconds(lockDurationSeconds());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resetea el contador de intentos fallidos y limpia el lockout.
+     * Se llama tras un login exitoso.
+     */
+    public void resetFailedLoginAttempts() {
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
+    }
+
+    /**
+     * Devuelve cuántos segundos faltan para que expire el lockout actual.
+     * Si no está bloqueada, devuelve 0.
+     */
+    public long remainingLockSeconds() {
+        if (!isLocked()) {
+            return 0L;
+        }
+        return Math.max(0L, lockedUntil.getEpochSecond() - Instant.now().getEpochSecond());
+    }
+
+    /**
+     * Calcula la duración del bloqueo según el tier (backoff progresivo).
+     */
+    private long lockDurationSeconds() {
+        int tier = this.failedLoginAttempts / LOCKOUT_THRESHOLD;
+        return switch (tier) {
+            case 1 -> 15 * 60L;          // 15 min
+            case 2 -> 60 * 60L;          // 1 h
+            default -> 24 * 60 * 60L;    // 24 h
+        };
     }
 
     private UserStatus currentStatus() {
