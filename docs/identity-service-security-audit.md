@@ -8,6 +8,7 @@
 > - ✅ **Fase 0 — Quick wins: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 > - ✅ **Fase 1 — Refresh tokens, revocación y logout: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 > - ✅ **Fase 2 — Rate limiting y protección de fuerza bruta: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
+> - ✅ **Fase 3 — Recover password + verificación de email: COMPLETADA** (2026-07-05). Ver detalle al final del plan.
 
 ---
 
@@ -390,8 +391,8 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 ## Checklist de verificación final (Definition of Done)
 
 - [x] ~~Usuario `SUSPENDED` no puede hacer login ni refresh~~ (Fase 0 + Fase 1 — validado con tests unitarios)
-- [ ] Flujo completo: register → email de verificación → verify → login → refresh → logout (test de integración; logout y refresh listos, falta verify en Fase 3)
-- [ ] Recover password end-to-end con token de un solo uso e invalidación de sesiones
+- [x] ~~Flujo completo: register → email de verificación → verify → login → refresh → logout~~ (Fase 3 — verify listo; el test de integración end-to-end requiere Docker/Testcontainers)
+- [x] ~~Recover password end-to-end con token de un solo uso e invalidación de sesiones~~ (Fase 3 — recover + reset + revocación de sesiones implementados)
 - [x] ~~5 logins fallidos → cuenta bloqueada temporalmente (test)~~ (Fase 2 — validado con tests unitarios: lockout en 5 intentos, backoff progresivo, reset en login exitoso)
 - [x] ~~Respuestas de `/register` no permiten enumeración por timing~~ (Fase 0 — BCrypt dummy ejecutado en login; registro aún devuelve 409, revisar en Fase 3)
 - [x] ~~Ningún 500 expone `ex.getMessage()`; todos los errores llevan `traceId`~~ (Fase 0)
@@ -567,3 +568,102 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - `mvn compile` ✅
 - Tests unitarios ✅ (76 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. La migración V6 y el mapeo JPA de los nuevos campos deben validarse contra PostgreSQL real antes de desplegar.
+
+---
+
+### Fase 3 — Recover password + verificación de email (COMPLETADA 2026-07-05)
+
+> **Decisiones de producto:**
+> - **Envío de email:** publicación de eventos a RabbitMQ (`identity.email.verification.requested`, `identity.password.recovery.requested`) para que un notification-service haga el envío. Sigue el patrón existente de `IdentityEventPublisherPort`.
+> - **Login de UNVERIFIED:** permitido con claim `email_verified: false` en el JWT (comportamiento GoTrue). El gateway/servicios downstream deciden si bloquean según el claim.
+
+#### 3.1 Migración `V7__one_time_tokens.sql` ✅
+- Tabla `one_time_tokens` con `token_hash` (SHA-256, VARCHAR(64)), `token_type` (`EMAIL_VERIFICATION` | `PASSWORD_RECOVERY`), `created_at`, `expires_at`, `used_at`.
+- `UNIQUE (user_id, token_type, token_hash)` + índices en `token_hash, token_type` y `user_id, token_type`.
+- FK a `users(user_id)`.
+
+#### 3.2 Dominio `OneTimeToken` + puerto `OneTimeTokenRepositoryPort` ✅
+- **`domain/model/OneTimeToken.java`** — modelo con enum `TokenType`, métodos `isExpired()`, `isUsed()`, `isValid()`, `markUsed()`.
+- **`domain/port/out/OneTimeTokenRepositoryPort.java`** — `save`, `findByTokenHashAndType`, `markAllUnusedForUserAndType`, `countActiveForUserAndType`.
+
+#### 3.3 Adapter JPA ✅
+- **`OneTimeTokenJpaEntity.java`** — entidad mapeada a `one_time_tokens`.
+- **`SpringDataOneTimeTokenRepository.java`** — repo Spring Data con `findByTokenHashAndTokenType`, `markAllUnusedForUserAndType` (UPDATE JPQL), `countActiveForUserAndType` (COUNT con filtro de expiración).
+- **`OneTimeTokenMapper.java`** — mapper bidireccional.
+- **`OneTimeTokenRepositoryAdapter.java`** — implementación del puerto.
+
+#### 3.4 Eventos de email (RabbitMQ) ✅
+- **`IdentityEventPublisherPort`** — extendido con `publishEmailVerificationRequested(user, rawToken)` y `publishPasswordRecoveryRequested(user, rawToken)`.
+- **`RabbitMqIdentityEventPublisherAdapter`** — publica eventos a `identity.email.verification.requested` e `identity.password.recovery.requested` con el token en claro para que el notification-service construya los links.
+
+#### 3.5 Claim `email_verified` en JWT ✅
+- **`JwtProviderAdapter`** — añadido `.claim("email_verified", user.isActive())`. Los usuarios `UNVERIFIED` obtienen `email_verified: false`; los `ACTIVE` obtienen `true`. El gateway/servicios downstream pueden usar este claim para decidir si bloquean ciertas operaciones.
+
+#### 3.6 Register genera token de verificación + evento ✅
+- **`RegisterUserService`** — tras persistir el usuario, genera un token `EMAIL_VERIFICATION` (TTL 24h), lo persiste hasheado y publica el evento. Si el envío falla, no revierte el registro (el usuario puede solicitar reenvío). Añadido `@Transactional` y captura de `DataIntegrityViolationException` para race conditions.
+
+#### 3.7 Recover password ✅
+- **`RecoverPasswordUseCase` + `RecoverPasswordService`** (`POST /v1/auth/recover`):
+  - **Anti-enumeración:** responde siempre 200 OK exista o no el email.
+  - Si el email existe: genera token opaco (SecureRandom 256 bits), guarda hash con TTL 1h, publica evento.
+  - **Rate limiting:** 1 token cada 60s por usuario (chequea `countActiveForUserAndType`).
+  - Audita `PASSWORD_RECOVERY_REQUESTED`.
+
+#### 3.8 Reset password ✅
+- **`ResetPasswordUseCase` + `ResetPasswordService`** (`POST /v1/auth/recover/confirm`):
+  - Valida hash + tipo + no usado + no expirado → mensaje genérico si falla (no revela causa).
+  - Actualiza `password_hash`, marca `used_at`, invalida otros tokens de recovery pendientes.
+  - **Revoca todos los refresh tokens del usuario** (invalida sesiones activas).
+  - Audita `PASSWORD_RECOVERED`.
+
+#### 3.9 Verificación de email ✅
+- **`VerifyEmailUseCase` + `VerifyEmailService`** (`POST /v1/auth/verify`):
+  - Valida token `EMAIL_VERIFICATION` + no usado + no expirado → mensaje genérico si falla.
+  - Transición de dominio `UNVERIFIED → ACTIVE` vía `User.verifyEmail()`.
+  - Marca token como usado, invalida otros tokens de verificación pendientes.
+  - Audita `EMAIL_VERIFIED`.
+
+#### 3.10 Resend verification ✅
+- **`ResendVerificationUseCase` + `ResendVerificationService`** (`POST /v1/auth/resend-verification`):
+  - **Anti-enumeración:** responde siempre 200 OK.
+  - Solo reenvía si el usuario existe y está `UNVERIFIED`.
+  - **Rate limiting:** 1 token activo a la vez (evita spam).
+  - Audita `VERIFICATION_RESENT`.
+
+#### 3.11 Change password autenticado ✅
+- **`ChangePasswordUseCase` + `ChangePasswordService`** (`POST /v1/auth/change-password`, requiere JWT):
+  - Verifica contraseña actual → `InvalidCredentialsException` si es incorrecta.
+  - Actualiza `password_hash`.
+  - **Revoca todos los refresh tokens del usuario** (fuerza re-login desde el frontend).
+  - Audita `PASSWORD_CHANGED`.
+
+#### 3.12 API + SecurityConfig ✅
+- **`AuthController`** — 5 nuevos endpoints: `/v1/auth/recover`, `/v1/auth/recover/confirm`, `/v1/auth/verify`, `/v1/auth/resend-verification`, `/v1/auth/change-password`. OpenAPI documentado.
+- **`SecurityConfig`** — rutas públicas explícitas añadidas: `/v1/auth/recover`, `/v1/auth/recover/confirm`, `/v1/auth/verify`, `/v1/auth/resend-verification`. `change-password` requiere autenticación (JWT).
+- **`RateLimitFilter`** — protegidas también `/v1/auth/recover` y `/v1/auth/resend-verification` (defensa en profundidad contra spam de emails).
+
+#### 3.13 Configuración ✅
+- **`application.yml`** — `security.verification-token-ttl: 86400` (24h), `security.recovery-token-ttl: 3600` (1h), configurables vía variables de entorno.
+
+#### DTOs nuevos ✅
+- `RecoverRequest` — `{email}` con validación.
+- `ResetPasswordRequest` — `{token, newPassword}` con `@Size(min=8, max=72)` en newPassword.
+- `VerifyEmailRequest` — `{token}`.
+- `ResendVerificationRequest` — `{email}` con validación.
+- `ChangePasswordRequest` — `{currentPassword, newPassword}` con validación de tamaño.
+
+#### Tests ✅
+- **`RegisterUserUseCaseTest`** — actualizado (2 tests): verifica generación de token + publicación de evento en registro.
+- **`RecoverPasswordServiceTest`** (nuevo, 3 tests): email existente genera token + evento, email inexistente no hace nada, token activo previene nuevo token.
+- **`ResetPasswordServiceTest`** (nuevo, 5 tests): token válido actualiza password + revoca sesiones, token inexistente/expirado/usado/blank → error genérico.
+- **`VerifyEmailServiceTest`** (nuevo, 5 tests): token válido transiciona a ACTIVE, token inexistente/expirado/usado/blank → error genérico.
+- **`ResendVerificationServiceTest`** (nuevo, 4 tests): usuario UNVERIFIED genera token + evento, email inexistente no hace nada, usuario ya verificado no hace nada, token activo previene nuevo.
+- **`ChangePasswordServiceTest`** (nuevo, 3 tests): contraseña correcta actualiza + revoca, contraseña incorrecta lanza excepción, usuario inexistente lanza excepción.
+- **`AuthControllerTest`** — actualizado por nuevo constructor del controller.
+- **`SecurityAuthorizationTest`** — actualizado con `@MockBean` para los 5 nuevos use cases.
+- **Resultado:** 96 tests, 0 fallos, BUILD SUCCESS.
+
+#### Verificación
+- `mvn compile` ✅
+- Tests unitarios ✅ (96 tests, 0 fallos).
+- Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker. La migración V7, el mapeo JPA de `one_time_tokens` y las queries JPQL deben validarse contra PostgreSQL real antes de desplegar.

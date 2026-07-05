@@ -1,15 +1,21 @@
 package com.orionticket.identity.infrastructure.adapters.in.rest;
 
 import com.orionticket.identity.application.port.in.AuthResult;
+import com.orionticket.identity.application.port.in.ChangePasswordUseCase;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
 import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.in.RecoverPasswordUseCase;
 import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
+import com.orionticket.identity.application.port.in.ResendVerificationUseCase;
+import com.orionticket.identity.application.port.in.ResetPasswordUseCase;
+import com.orionticket.identity.application.port.in.VerifyEmailUseCase;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginResponse;
+import com.orionticket.identity.infrastructure.adapters.out.security.AuthenticatedUserResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +58,13 @@ class AuthControllerTest {
         LoginUserUseCase login = mock(LoginUserUseCase.class);
         RefreshTokenUseCase refresh = mock(RefreshTokenUseCase.class);
         LogoutUseCase logout = mock(LogoutUseCase.class);
+        RecoverPasswordUseCase recover = mock(RecoverPasswordUseCase.class);
+        ResetPasswordUseCase reset = mock(ResetPasswordUseCase.class);
+        VerifyEmailUseCase verify = mock(VerifyEmailUseCase.class);
+        ResendVerificationUseCase resend = mock(ResendVerificationUseCase.class);
+        ChangePasswordUseCase changePw = mock(ChangePasswordUseCase.class);
         RoleRepositoryPort roles = roleRepository(role);
+        AuthenticatedUserResolver userResolver = mock(AuthenticatedUserResolver.class);
         HttpServletRequest httpRequest = mock(HttpServletRequest.class);
 
         when(httpRequest.getHeader("User-Agent")).thenReturn("test-ua");
@@ -61,7 +73,8 @@ class AuthControllerTest {
         when(login.login("organizer@orionticket.com", "password123", "test-ua", "127.0.0.1"))
                 .thenReturn(authResult);
 
-        AuthController controller = new AuthController(register, login, refresh, logout, roles);
+        AuthController controller = new AuthController(register, login, refresh, logout,
+                recover, reset, verify, resend, changePw, roles, userResolver);
         LoginRequest request = new LoginRequest();
         request.setEmail("organizer@orionticket.com");
         request.setPassword("password123");

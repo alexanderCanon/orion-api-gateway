@@ -56,6 +56,7 @@ public class JwtProviderAdapter implements JwtProviderPort {
                 .issuer(issuer)
                 .subject(user.getUserId().toString())
                 .claim("email", user.getEmail())
+                .claim("email_verified", user.isActive())
                 .claim("roleId", user.getRoleId() != null ? user.getRoleId().toString() : null)
                 .claim("role", role.getName())
                 .claim("permissions", role.getPermissions() != null ? role.getPermissions() : List.of())

@@ -1,19 +1,31 @@
 package com.orionticket.identity.infrastructure.adapters.in.rest;
 
 import com.orionticket.identity.application.port.in.AuthResult;
+import com.orionticket.identity.application.port.in.ChangePasswordUseCase;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
 import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.in.RecoverPasswordUseCase;
 import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
+import com.orionticket.identity.application.port.in.ResendVerificationUseCase;
+import com.orionticket.identity.application.port.in.ResetPasswordUseCase;
+import com.orionticket.identity.application.port.in.VerifyEmailUseCase;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.ChangePasswordRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LoginResponse;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.LogoutRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.RecoverRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.RefreshRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.RegisterRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.RegisterResponse;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.ResendVerificationRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.ResetPasswordRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.VerifyEmailRequest;
+import com.orionticket.identity.infrastructure.adapters.out.security.AuthenticatedUser;
+import com.orionticket.identity.infrastructure.adapters.out.security.AuthenticatedUserResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -31,16 +43,22 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/v1/auth")
 @RequiredArgsConstructor
-@Tag(name = "Authentication", description = "Buyer registration, login, refresh and logout endpoints")
+@Tag(name = "Authentication", description = "Buyer registration, login, refresh, logout, email verification, password recovery and change endpoints")
 public class AuthController {
 
     private final RegisterUserUseCase registerUserUseCase;
     private final LoginUserUseCase loginUserUseCase;
     private final RefreshTokenUseCase refreshTokenUseCase;
     private final LogoutUseCase logoutUseCase;
+    private final RecoverPasswordUseCase recoverPasswordUseCase;
+    private final ResetPasswordUseCase resetPasswordUseCase;
+    private final VerifyEmailUseCase verifyEmailUseCase;
+    private final ResendVerificationUseCase resendVerificationUseCase;
+    private final ChangePasswordUseCase changePasswordUseCase;
     private final RoleRepositoryPort roleRepositoryPort;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
 
-    @Operation(summary = "Register buyer", description = "Registers a buyer account in UNVERIFIED status.")
+    @Operation(summary = "Register buyer", description = "Registers a buyer account in UNVERIFIED status and sends a verification email.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Buyer registered"),
             @ApiResponse(responseCode = "400", description = "Invalid request"),
@@ -70,7 +88,8 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Login successful"),
             @ApiResponse(responseCode = "400", description = "Invalid request"),
             @ApiResponse(responseCode = "401", description = "Invalid credentials"),
-            @ApiResponse(responseCode = "403", description = "Account disabled")
+            @ApiResponse(responseCode = "403", description = "Account disabled"),
+            @ApiResponse(responseCode = "429", description = "Account locked by brute-force protection")
     })
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
@@ -109,6 +128,74 @@ public class AuthController {
     public ResponseEntity<Void> logout(@Valid @RequestBody LogoutRequest request) {
         logoutUseCase.logout(request.getRefreshToken(), request.isAll());
         return ResponseEntity.noContent().build();
+    }
+
+    // --- Fase 3: Recover password + email verification ---
+
+    @Operation(summary = "Request password recovery", description = "Sends a password recovery email if the account exists. Always returns 200 OK to prevent email enumeration.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Recovery email sent (if account exists)"),
+            @ApiResponse(responseCode = "400", description = "Invalid request")
+    })
+    @PostMapping("/recover")
+    public ResponseEntity<Void> recover(@Valid @RequestBody RecoverRequest request) {
+        recoverPasswordUseCase.requestPasswordRecovery(request.getEmail());
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "Reset password", description = "Resets the password using a recovery token. Revokes all active sessions.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password reset successful"),
+            @ApiResponse(responseCode = "400", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired recovery token")
+    })
+    @PostMapping("/recover/confirm")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        resetPasswordUseCase.resetPassword(request.getToken(), request.getNewPassword());
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "Verify email", description = "Verifies the email using a verification token. Transitions the account from UNVERIFIED to ACTIVE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Email verified successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired verification token")
+    })
+    @PostMapping("/verify")
+    public ResponseEntity<Void> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        verifyEmailUseCase.verifyEmail(request.getToken());
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "Resend verification email", description = "Resends the verification email if the account exists and is not yet verified. Always returns 200 OK to prevent email enumeration.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Verification email sent (if account exists and is unverified)"),
+            @ApiResponse(responseCode = "400", description = "Invalid request")
+    })
+    @PostMapping("/resend-verification")
+    public ResponseEntity<Void> resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
+        resendVerificationUseCase.resendVerification(request.getEmail());
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "Change password", description = "Changes the password for the authenticated user. Requires the current password. Revokes all active sessions.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password changed successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "401", description = "Current password is incorrect"),
+            @ApiResponse(responseCode = "403", description = "Authentication required")
+    })
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                                                HttpServletRequest httpRequest) {
+        AuthenticatedUser currentUser = authenticatedUserResolver.currentUser();
+        String currentRefreshToken = httpRequest.getHeader("X-Refresh-Token");
+        changePasswordUseCase.changePassword(
+                currentUser.userId(),
+                request.getCurrentPassword(),
+                request.getNewPassword(),
+                currentRefreshToken);
+        return ResponseEntity.ok().build();
     }
 
     private LoginResponse toLoginResponse(AuthResult result) {

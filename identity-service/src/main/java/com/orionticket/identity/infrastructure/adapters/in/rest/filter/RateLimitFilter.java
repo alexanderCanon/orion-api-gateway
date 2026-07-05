@@ -46,7 +46,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String[] PROTECTED_PATHS = {
             "/v1/auth/login",
-            "/v1/auth/register"
+            "/v1/auth/register",
+            "/v1/auth/recover",
+            "/v1/auth/resend-verification"
     };
 
     private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();

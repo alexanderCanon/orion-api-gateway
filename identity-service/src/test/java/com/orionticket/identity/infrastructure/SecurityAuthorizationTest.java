@@ -1,12 +1,17 @@
 package com.orionticket.identity.infrastructure;
 
 import com.orionticket.identity.application.port.in.AuthResult;
+import com.orionticket.identity.application.port.in.ChangePasswordUseCase;
 import com.orionticket.identity.application.port.in.LoginUserUseCase;
 import com.orionticket.identity.application.port.in.LogoutUseCase;
+import com.orionticket.identity.application.port.in.RecoverPasswordUseCase;
 import com.orionticket.identity.application.port.in.RefreshTokenUseCase;
 import com.orionticket.identity.application.port.in.RegisterUserUseCase;
+import com.orionticket.identity.application.port.in.ResendVerificationUseCase;
+import com.orionticket.identity.application.port.in.ResetPasswordUseCase;
 import com.orionticket.identity.application.port.in.RoleManagementUseCase;
 import com.orionticket.identity.application.port.in.UserManagementUseCase;
+import com.orionticket.identity.application.port.in.VerifyEmailUseCase;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
@@ -72,6 +77,21 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private AuthenticatedUserResolver authenticatedUserResolver;
+
+    @MockBean
+    private RecoverPasswordUseCase recoverPasswordUseCase;
+
+    @MockBean
+    private ResetPasswordUseCase resetPasswordUseCase;
+
+    @MockBean
+    private VerifyEmailUseCase verifyEmailUseCase;
+
+    @MockBean
+    private ResendVerificationUseCase resendVerificationUseCase;
+
+    @MockBean
+    private ChangePasswordUseCase changePasswordUseCase;
 
     @Test
     void usersEndpointWithoutTokenReturnsUnauthorized() throws Exception {

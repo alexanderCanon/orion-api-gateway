@@ -64,6 +64,11 @@ security:
     rate-limit:
         capacity: ${RATE_LIMIT_CAPACITY:10}
         refill-minutes: ${RATE_LIMIT_REFILL_MINUTES:1}
+    # Fase 3 (C2): TTLs de tokens de un solo uso.
+    #   - verification: 24h (link de verificación de email)
+    #   - recovery: 1h (link de reset de contraseña)
+    verification-token-ttl: ${VERIFICATION_TOKEN_TTL:86400}
+    recovery-token-ttl: ${RECOVERY_TOKEN_TTL:3600}
 
 management:
     endpoints:
