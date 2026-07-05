@@ -82,6 +82,9 @@ class RefreshTokenServiceTest {
         // El nuevo token encadena con el viejo vía parentId.
         verify(refreshTokenRepository).save(argThat(t ->
                 t.getParentId() != null && t.getParentId().equals(tokenId)));
+        // Fase 4: refresh exitoso debe auditar TOKEN_REFRESHED con IP + UA.
+        verify(auditLogPort).logAction(eq(userId), eq("TOKEN_REFRESHED"),
+                anyString(), eq("127.0.0.1"), eq("UA"));
     }
 
     @Test
@@ -115,6 +118,9 @@ class RefreshTokenServiceTest {
                 () -> service.refresh("raw", "UA", "127.0.0.1"));
         verify(refreshTokenRepository).revokeChain(tokenId);
         verify(jwtProviderPort, never()).generateToken(any());
+        // Fase 4: reuse de token debe auditar TOKEN_REFRESH_REUSE_DETECTED con IP + UA.
+        verify(auditLogPort).logAction(eq(stored.getUserId()),
+                eq("TOKEN_REFRESH_REUSE_DETECTED"), anyString(), eq("127.0.0.1"), eq("UA"));
     }
 
     @Test

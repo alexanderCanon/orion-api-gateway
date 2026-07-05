@@ -71,6 +71,8 @@ class RegisterUserUseCaseTest {
         verify(userRepositoryPort, times(1)).save(any(User.class));
         verify(oneTimeTokenRepository).save(any(OneTimeToken.class));
         verify(eventPublisher).publishEmailVerificationRequested(any(User.class), eq("raw-token"));
+        // Fase 4: registro debe auditar USER_REGISTERED.
+        verify(auditLogPort).logAction(eq(createdUser.getUserId()), eq("USER_REGISTERED"), anyString());
     }
 
     @Test

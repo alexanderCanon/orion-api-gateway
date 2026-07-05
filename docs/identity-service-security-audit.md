@@ -696,14 +696,14 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - Los 5 DTOs nuevos de Fase 3 (`RecoverRequest`, `ResetPasswordRequest`, `VerifyEmailRequest`, `ResendVerificationRequest`, `ChangePasswordRequest`) fueron actualizados de `@Data` a `@Getter @Setter @NoArgsConstructor` según la regla del proyecto.
 
 #### Tests ✅
-- **`LoginUserUseCaseTest`** — actualizado: verificaciones de `logAction` cambiadas de 3-arg a 5-arg (con IP + UA) para matchear la nueva firma.
-- **`RefreshTokenServiceTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 5 dependencias.
-- **`LogoutServiceTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 3 dependencias.
-- **`RegisterUserUseCaseTest`** — actualizado: añadido `@Mock AuditLogPort` y nuevo constructor con 6 dependencias.
-- **`RoleManagementServiceTest`** — actualizado: `assertThrows(RuntimeException.class)` → `assertThrows(RoleNotFoundException.class)` en `updateRoleThrowsWhenNotFound` y `deleteRoleThrowsWhenNotFound`.
-- **Resultado:** 100 tests, 0 fallos, BUILD SUCCESS.
+- **`LoginUserUseCaseTest`** — actualizado (9 tests): verificaciones de `logAction` cambiadas de 3-arg a 5-arg (con IP + UA); añadida verificación de `LOGIN_SUCCESS` en login exitoso.
+- **`RegisterUserUseCaseTest`** — actualizado (2 tests): añadido `@Mock AuditLogPort` y verificación de `USER_REGISTERED` en registro exitoso.
+- **`RefreshTokenServiceTest`** — actualizado (6 tests): añadido `@Mock AuditLogPort`; añadida verificación de `TOKEN_REFRESHED` en refresh exitoso y `TOKEN_REFRESH_REUSE_DETECTED` en reuse de token.
+- **`LogoutServiceTest`** — actualizado (4 tests): añadido `@Mock AuditLogPort`; añadida verificación de `LOGOUT` en logout individual y `LOGOUT_ALL` en logout de todas las sesiones.
+- **`RoleManagementServiceTest`** — actualizado (8 tests): `assertThrows(RuntimeException.class)` → `assertThrows(RoleNotFoundException.class)` en `updateRoleThrowsWhenNotFound` y `deleteRoleThrowsWhenNotFound`; añadido test `createRoleWithDuplicateNameThrowsDataIntegrityViolation` que verifica la captura de `DataIntegrityViolationException` con nombre de rol duplicado; añadido test `deleteRoleThrowsRoleNotFoundExceptionWhenNotFound`.
+- **Resultado:** 102 tests, 0 fallos, BUILD SUCCESS.
 
 #### Verificación
 - `mvn compile` ✅
-- Tests unitarios ✅ (100 tests, 0 fallos).
+- Tests unitarios ✅ (102 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker.

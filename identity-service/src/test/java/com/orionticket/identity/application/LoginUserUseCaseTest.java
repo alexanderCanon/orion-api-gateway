@@ -85,6 +85,9 @@ class LoginUserUseCaseTest {
         assertEquals(900L, result.expiresIn());
         assertEquals(user, result.user());
         verify(refreshTokenRepository).save(any(RefreshToken.class));
+        // Fase 4: login exitoso debe auditar LOGIN_SUCCESS con IP + UA.
+        verify(auditLogPort).logAction(eq(user.getUserId()), eq("LOGIN_SUCCESS"),
+                anyString(), eq("127.0.0.1"), eq("UA"));
     }
 
     @Test

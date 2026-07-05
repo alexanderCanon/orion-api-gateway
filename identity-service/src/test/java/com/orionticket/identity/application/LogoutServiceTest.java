@@ -55,6 +55,8 @@ class LogoutServiceTest {
 
         verify(refreshTokenRepository).save(argThat(RefreshToken::isRevoked));
         verify(refreshTokenRepository, never()).revokeAllForUser(any());
+        // Fase 4: logout individual debe auditar LOGOUT.
+        verify(auditLogPort).logAction(eq(userId), eq("LOGOUT"), anyString());
     }
 
     @Test
@@ -75,6 +77,8 @@ class LogoutServiceTest {
 
         verify(refreshTokenRepository).revokeAllForUser(userId);
         verify(refreshTokenRepository, never()).save(any());
+        // Fase 4: logout all debe auditar LOGOUT_ALL.
+        verify(auditLogPort).logAction(eq(userId), eq("LOGOUT_ALL"), anyString());
     }
 
     @Test

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Optional;
@@ -97,7 +98,7 @@ class RoleManagementServiceTest {
         UUID roleId = UUID.randomUUID();
         when(roleRepositoryPort.findById(roleId)).thenReturn(Optional.empty());
 
-        assertThrows(RuntimeException.class,
+        assertThrows(RoleNotFoundException.class,
                 () -> roleManagementService.deleteRole(roleId, UUID.randomUUID()));
     }
 
@@ -114,5 +115,31 @@ class RoleManagementServiceTest {
         assertEquals(2, result.size());
         assertEquals("A", result.get(0).getName());
         assertEquals("B", result.get(1).getName());
+    }
+
+    @Test
+    void createRoleWithDuplicateNameThrowsDataIntegrityViolation() {
+        // Fase 4: dos requests concurrentes con el mismo nombre de rol pueden
+        // pasar el check-then-act y explotar en la BD. El servicio debe
+        // traducir la DataIntegrityViolationException a un mensaje claro.
+        UUID adminId = UUID.randomUUID();
+        when(roleRepositoryPort.save(any(Role.class)))
+                .thenThrow(new DataIntegrityViolationException("Duplicate role name"));
+
+        DataIntegrityViolationException ex = assertThrows(DataIntegrityViolationException.class,
+                () -> roleManagementService.createRole("DUPLICATE", List.of("events:read"), adminId));
+
+        assertTrue(ex.getMessage().contains("DUPLICATE"));
+        verify(auditLogPort, never()).logAction(any(), any(), any());
+    }
+
+    @Test
+    void deleteRoleThrowsRoleNotFoundExceptionWhenNotFound() {
+        // Fase 4: antes se lanzaba RuntimeException genérico; ahora RoleNotFoundException.
+        UUID roleId = UUID.randomUUID();
+        when(roleRepositoryPort.findById(roleId)).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleManagementService.deleteRole(roleId, UUID.randomUUID()));
     }
 }
