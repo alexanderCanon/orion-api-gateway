@@ -403,7 +403,7 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - [x] ~~Reuso de refresh token rotado revoca toda la cadena~~ (Fase 1 — validado con test unitario)
 - [x] ~~Logout revoca refresh token; `all=true` revoca todas las sesiones~~ (Fase 1)
 - [x] ~~Suspensión/cambio de rol revoca todas las sesiones activas~~ (Fase 1)
-- [ ] `mvn verify` en verde con Testcontainers (los tests unitarios pasan; los de integración requieren Docker disponible en el entorno)
+- [x] ~~`mvn verify` en verde con Testcontainers~~ (verificado por el usuario — todos los tests de integración pasan)
 
 ---
 
@@ -733,12 +733,24 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
   - `headers.cacheControl` — `Cache-Control: no-store` en respuestas.
 - **CORS**: se documenta que lo maneja el API Gateway (Traefik) en producción; no se define `CorsConfigurationSource` para no duplicar lógica.
 
-### 5.4 Rotación de claves JWT (M5) ⏳
-- **Pendiente**: el `JwtProviderAdapter` actual usa una sola clave RSA configurada vía `jwt.private-key` / `jwt.public-key`. Para soportar rotación sin downtime habría que:
-  1. Cambiar `SecurityConfig.jwtDecoder` para usar `NimbusJwtDecoder.withJwkSetUri(...)` apuntando al propio JWKS local.
-  2. Soportar múltiples claves en `JwtProviderAdapter` (lista activa para firmar + anteriores para validar).
-  3. Documentar el procedimiento de rotación (agregar clave nueva → esperar TTL máximo del access token → retirar la vieja).
-- **Decisión**: se deja pendiente porque requiere cambios arquitecturales mayores en la gestión de claves y no hay un requisito inmediato de rotación. El endpoint `/.well-known/jwks.json` ya expone la clave pública con su `kid`.
+### 5.4 Rotación de claves JWT (M5) ✅
+- **`JwtKeyProperties`** (nueva, `@ConfigurationProperties(prefix = "jwt")`): soporta dos modos:
+  - **Modo simple (backward-compat)**: `jwt.private-key`, `jwt.public-key`, `jwt.key-id` — una sola clave activa. Es el modo que se usa por defecto si `jwt.keys[]` está vacío.
+  - **Modo rotación**: `jwt.keys[]` con `{kid, private-key, public-key, active}`. La clave marcada como `active: true` se usa para firmar; todas las claves se usan para validar.
+- **`JwtKeyManager`** (nuevo componente): centraliza la carga y gestión de claves RSA. Mantiene un `Map<String, KeyMaterial>` (kid → keypair) y un `activeKeyId`. Valida que exactamente una clave esté marcada como `active` en modo rotación.
+- **`JwtProviderAdapter`**: refactorizado para usar `JwtKeyManager` en lugar de parsear claves directamente. `generateToken` firma con la clave activa e incluye el `kid` correspondiente en el header. Los métodos `publicKey()` y `keyId()` quedan deprecated (delegan al `JwtKeyManager`).
+- **`SecurityConfig.jwtDecoder`**: refactorizado para validar contra todas las claves públicas del `JwtKeyManager`:
+  - Si hay una sola clave: usa `NimbusJwtDecoder.withPublicKey(...)` (path simple, sin dependencia de nimbus-jose-jwt JWKSet).
+  - Si hay múltiples claves: construye un `JWKSet` con todas las claves públicas y un `JWSVerificationKeySelector` que selecciona la clave por `kid` del header del JWT. Esto permite que los tokens firmados con la clave vieja sigan validando durante la rotación.
+- **`JwksController`**: refactorizado para usar `JwtKeyManager` y exponer **todas** las claves públicas en el JWKS (no solo la activa), de modo que los clientes puedan validar tokens firmados con cualquier clave.
+- **`application.yml`**: documentada la nueva estructura `jwt.keys[]` con el procedimiento de rotación.
+- **`@EnableConfigurationProperties(JwtKeyProperties.class)`** añadido a `SecurityConfig`.
+- **Procedimiento de rotación sin downtime** (documentado en `application.yml` y `JwtKeyProperties`):
+  1. Agregar clave nueva al final de `jwt.keys[]` con `active: false`.
+  2. Esperar ≥ TTL del access token (15 min).
+  3. Marcar clave nueva como `active: true`, vieja como `active: false`. Reiniciar.
+  4. Esperar a que todos los tokens firmados con la clave vieja expiren.
+  5. Remover la clave vieja de `jwt.keys[]`.
 
 ### 5.5 Hashing (B1) ✅
 - **`SecurityConfig.passwordEncoder`**: cambiado de `BCryptPasswordEncoder` (strength default 10) a `DelegatingPasswordEncoder` con:
@@ -762,7 +774,7 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
 - **`AuthenticatedUserResolverTest`** — actualizado (3 tests): el test `currentUserUsesSubjectAsOrganizerIdWhenOrganizerClaimIsMissing` se renombró a `currentUserThrowsAccessDeniedWhenOrganizerClaimIsMissingForOrganizerRole` y ahora verifica que se lanza `AccessDeniedException` (comportamiento esperado tras eliminar el fallback).
 - **`AuthControllerTest`** — actualizado (1 test): eliminada la inyección de `RoleRepositoryPort`; `AuthResult` ahora incluye `role`; constructor con 10 args (sin `roles`).
 - **`SecurityAuthorizationTest`** — actualizado (6 tests): `AuthResult` del test `loginEndpointRemainsPublic` ahora incluye `role`.
-- **`JwksControllerTest`** y **`JwtProviderAdapterTest`** — actualizados: implementaciones anónimas de `RoleRepositoryPort` ahora implementan `findByName`.
+- **`JwksControllerTest`** y **`JwtProviderAdapterTest`** — actualizados: ahora construyen `JwtKeyManager` con `JwtKeyProperties` en lugar del constructor antiguo de `JwtProviderAdapter`.
 
 #### Tests nuevos
 - **`RegisterUserUseCaseTest`** — 2 tests nuevos:
@@ -782,10 +794,14 @@ PasswordEncoderFactories.createDelegatingPasswordEncoder() // o custom con bcryp
   - `passwordEncoderValidatesNewBcryptPrefixedHash`: verifica que un hash generado por el encoder valida correctamente.
   - `passwordEncoderValidatesLegacyHashWithoutPrefix`: verifica que un hash bcrypt sin prefijo (generado con `BCryptPasswordEncoder` strength 10, como los existentes en BD) sigue validando gracias a `setDefaultPasswordEncoderForMatches`.
   - `passwordEncoderUsesBcryptStrength12`: verifica que los nuevos hashes usan `$2a$12$` (strength 12).
+- **`JwtProviderAdapterTest`** — 1 test nuevo:
+  - `generateTokenWithMultipleKeysSignsWithActiveKey`: verifica que en modo rotación (2 claves, una activa y una inactiva), el token se firma con la clave activa y el `kid` del header corresponde a la clave activa.
+- **`JwksControllerTest`** — 1 test nuevo:
+  - `jwksExposesAllKeysInRotationMode`: verifica que en modo rotación, el endpoint JWKS expone todas las claves públicas (tanto la activa como la vieja), no solo la activa.
 
-- **Resultado:** 114 tests, 0 fallos, BUILD SUCCESS (antes 102, ahora +12 tests nuevos).
+- **Resultado:** 116 tests, 0 fallos, BUILD SUCCESS (antes 102, ahora +14 tests nuevos).
 
 ### Verificación
 - `mvn compile` ✅
-- Tests unitarios ✅ (114 tests, 0 fallos).
+- Tests unitarios ✅ (116 tests, 0 fallos).
 - Tests de integración (Testcontainers): pendientes de ejecutar en entorno con Docker.

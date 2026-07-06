@@ -1,7 +1,14 @@
 package com.orionticket.identity.infrastructure.config;
 
 import com.orionticket.identity.infrastructure.adapters.out.security.JwtAuthoritiesConverter;
-import com.orionticket.identity.infrastructure.adapters.out.security.JwtProviderAdapter;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -25,6 +32,7 @@ import java.util.Map;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@EnableConfigurationProperties(JwtKeyProperties.class)
 public class SecurityConfig {
 
     /**
@@ -87,8 +95,33 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * JwtDecoder que valida contra todas las claves públicas configuradas
+     * en {@link JwtKeyManager}, seleccionando la clave por el {@code kid}
+     * del header del JWT. Esto soporta rotación de claves: los tokens
+     * firmados con una clave vieja siguen validando hasta que la clave se
+     * retire de la configuración.
+     */
     @Bean
-    public JwtDecoder jwtDecoder(JwtProviderAdapter jwtProviderAdapter) {
-        return NimbusJwtDecoder.withPublicKey((RSAPublicKey) jwtProviderAdapter.publicKey()).build();
+    public JwtDecoder jwtDecoder(JwtKeyManager keyManager) {
+        // Si solo hay una clave, usar el path simple (withPublicKey) que
+        // no requiere nimbus-jose-jwt JWKSet.
+        if (keyManager.keyCount() == 1) {
+            RSAPublicKey publicKey = (RSAPublicKey) keyManager.activeKey().publicKey();
+            return NimbusJwtDecoder.withPublicKey(publicKey).build();
+        }
+
+        // Multi-clave: construir un JWKSet con todas las claves públicas y
+        // un JWSVerificationKeySelector que selecciona por kid.
+        java.util.List<JWK> jwks = new java.util.ArrayList<>();
+        keyManager.allPublicKeys().forEach((kid, rsaPublicKey) ->
+                jwks.add(new RSAKey.Builder(rsaPublicKey).keyID(kid).build()));
+        JWKSet jwkSet = new JWKSet(jwks);
+        JWSVerificationKeySelector<com.nimbusds.jose.proc.SecurityContext> keySelector =
+                new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, new ImmutableJWKSet<>(jwkSet));
+        DefaultJWTProcessor<com.nimbusds.jose.proc.SecurityContext> processor =
+                new DefaultJWTProcessor<>();
+        processor.setJWSKeySelector(keySelector);
+        return new NimbusJwtDecoder(processor);
     }
 }

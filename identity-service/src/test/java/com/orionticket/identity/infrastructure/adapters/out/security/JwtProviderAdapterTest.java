@@ -3,6 +3,8 @@ package com.orionticket.identity.infrastructure.adapters.out.security;
 import com.orionticket.identity.domain.model.Role;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.domain.port.out.RoleRepositoryPort;
+import com.orionticket.identity.infrastructure.config.JwtKeyManager;
+import com.orionticket.identity.infrastructure.config.JwtKeyProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
@@ -38,14 +40,12 @@ class JwtProviderAdapterTest {
                 .permissions(List.of("events:create", "events:update"))
                 .build());
 
-        JwtProviderAdapter adapter = new JwtProviderAdapter(
-                privateKeyPem(keyPair),
-                publicKeyPem(keyPair),
-                "orion-key-1",
-                "orionticket-identity",
-                3600,
-                roles
-        );
+        JwtKeyProperties props = singleKeyProps(
+                pem("PRIVATE KEY", keyPair.getPrivate().getEncoded()),
+                pem("PUBLIC KEY", keyPair.getPublic().getEncoded()),
+                "orion-key-1");
+        JwtKeyManager keyManager = new JwtKeyManager(props);
+        JwtProviderAdapter adapter = new JwtProviderAdapter(keyManager, roles);
 
         String token = adapter.generateToken(user);
 
@@ -65,18 +65,71 @@ class JwtProviderAdapterTest {
         assertIterableEquals(List.of("events:create", "events:update"), claims.get("permissions", List.class));
     }
 
+    @Test
+    void generateTokenWithMultipleKeysSignsWithActiveKey() throws Exception {
+        // Fase 5.4: con múltiples claves, el token se firma con la clave activa.
+        KeyPair activeKeyPair = rsaKeyPair();
+        KeyPair oldKeyPair = rsaKeyPair();
+        UUID roleId = UUID.randomUUID();
+        User user = User.builder()
+                .userId(UUID.randomUUID())
+                .email("test@orionticket.com")
+                .roleId(roleId)
+                .build();
+        RoleRepositoryPort roles = roleRepository(Role.builder()
+                .roleId(roleId)
+                .name("BUYER")
+                .permissions(List.of())
+                .build());
+
+        JwtKeyProperties props = new JwtKeyProperties();
+        props.setIssuer("orionticket-identity");
+        props.setExpiration(3600);
+        props.setKeys(List.of(
+                keyEntry("old-key", pem("PRIVATE KEY", oldKeyPair.getPrivate().getEncoded()),
+                        pem("PUBLIC KEY", oldKeyPair.getPublic().getEncoded()), false),
+                keyEntry("active-key", pem("PRIVATE KEY", activeKeyPair.getPrivate().getEncoded()),
+                        pem("PUBLIC KEY", activeKeyPair.getPublic().getEncoded()), true)
+        ));
+        JwtKeyManager keyManager = new JwtKeyManager(props);
+        JwtProviderAdapter adapter = new JwtProviderAdapter(keyManager, roles);
+
+        String token = adapter.generateToken(user);
+
+        // El token debe tener kid="active-key" y validar con la clave activa.
+        Jws<Claims> parsedToken = Jwts.parser()
+                .verifyWith((RSAPublicKey) activeKeyPair.getPublic())
+                .requireIssuer("orionticket-identity")
+                .build()
+                .parseSignedClaims(token);
+
+        assertEquals("active-key", parsedToken.getHeader().getKeyId());
+        assertEquals(user.getUserId().toString(), parsedToken.getPayload().getSubject());
+    }
+
+    private static JwtKeyProperties singleKeyProps(String privateKey, String publicKey, String keyId) {
+        JwtKeyProperties props = new JwtKeyProperties();
+        props.setPrivateKey(privateKey);
+        props.setPublicKey(publicKey);
+        props.setKeyId(keyId);
+        props.setIssuer("orionticket-identity");
+        props.setExpiration(3600);
+        return props;
+    }
+
+    private static JwtKeyProperties.KeyEntry keyEntry(String kid, String priv, String pub, boolean active) {
+        JwtKeyProperties.KeyEntry entry = new JwtKeyProperties.KeyEntry();
+        entry.setKid(kid);
+        entry.setPrivateKey(priv);
+        entry.setPublicKey(pub);
+        entry.setActive(active);
+        return entry;
+    }
+
     private static KeyPair rsaKeyPair() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         return generator.generateKeyPair();
-    }
-
-    private static String privateKeyPem(KeyPair keyPair) {
-        return pem("PRIVATE KEY", keyPair.getPrivate().getEncoded());
-    }
-
-    private static String publicKeyPem(KeyPair keyPair) {
-        return pem("PUBLIC KEY", keyPair.getPublic().getEncoded());
     }
 
     private static String pem(String type, byte[] encoded) {

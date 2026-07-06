@@ -1,6 +1,6 @@
 package com.orionticket.identity.infrastructure.adapters.in.rest;
 
-import com.orionticket.identity.infrastructure.adapters.out.security.JwtProviderAdapter;
+import com.orionticket.identity.infrastructure.config.JwtKeyManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -8,25 +8,29 @@ import org.springframework.web.bind.annotation.RestController;
 import java.security.interfaces.RSAPublicKey;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
 public class JwksController {
 
-    private final JwtProviderAdapter jwtProviderAdapter;
+    private final JwtKeyManager keyManager;
 
     @GetMapping("/.well-known/jwks.json")
     public JwksResponse getJwks() {
-        RSAPublicKey publicKey = (RSAPublicKey) jwtProviderAdapter.publicKey();
-        JwksResponse.Jwk jwk = new JwksResponse.Jwk(
+        Map<String, RSAPublicKey> publicKeys = keyManager.allPublicKeys();
+        List<JwksResponse.Jwk> jwks = new java.util.ArrayList<>(publicKeys.size());
+
+        publicKeys.forEach((kid, publicKey) -> jwks.add(new JwksResponse.Jwk(
                 "RSA",
                 "sig",
-                jwtProviderAdapter.keyId(),
+                kid,
                 "RS256",
                 base64Url(publicKey.getModulus().toByteArray()),
                 base64Url(publicKey.getPublicExponent().toByteArray())
-        );
-        return new JwksResponse(List.of(jwk));
+        )));
+
+        return new JwksResponse(jwks);
     }
 
     private static String base64Url(byte[] value) {
