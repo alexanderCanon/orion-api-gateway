@@ -31,6 +31,11 @@ public class RoleRepositoryAdapter implements RoleRepositoryPort {
     }
 
     @Override
+    public Optional<Role> findByName(String name) {
+        return roleRepository.findByName(name).map(RoleMapper::toDomain);
+    }
+
+    @Override
     public List<Role> findAll() {
         return roleRepository.findAll().stream()
                 .map(RoleMapper::toDomain)

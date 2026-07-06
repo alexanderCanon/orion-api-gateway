@@ -1,0 +1,1 @@
+# Do not use Lombok Data, use explicity Getter, Setter, Args, Noargs, Builder, etc.. when applies

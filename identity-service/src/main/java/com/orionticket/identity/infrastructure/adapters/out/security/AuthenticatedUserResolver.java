@@ -20,7 +20,7 @@ public class AuthenticatedUserResolver {
 
         UUID userId = UUID.fromString(jwt.getSubject());
         String role = jwt.getClaimAsString("role");
-        UUID organizerId = resolveOrganizerId(jwt, role, userId);
+        UUID organizerId = resolveOrganizerId(jwt, role);
 
         return new AuthenticatedUser(userId, role, organizerId);
     }
@@ -36,11 +36,18 @@ public class AuthenticatedUserResolver {
         return currentUser;
     }
 
-    private static UUID resolveOrganizerId(Jwt jwt, String role, UUID userId) {
+    private static UUID resolveOrganizerId(Jwt jwt, String role) {
         String organizerId = jwt.getClaimAsString("organizerId");
         if (organizerId != null && !organizerId.isBlank()) {
             return UUID.fromString(organizerId);
         }
-        return "ORGANIZER".equals(role) ? userId : null;
+        // Si el rol es ORGANIZER pero falta el claim organizerId, es un JWT
+        // malformado o emitido por una versión anterior. Por seguridad, no
+        // asumimos que el userId es el organizerId (podría ser un staff).
+        if ("ORGANIZER".equals(role)) {
+            throw new AccessDeniedException(
+                    "ORGANIZER role requires an organizerId claim in the JWT");
+        }
+        return null;
     }
 }

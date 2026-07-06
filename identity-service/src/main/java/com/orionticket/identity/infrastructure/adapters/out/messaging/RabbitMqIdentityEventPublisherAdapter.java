@@ -27,12 +27,48 @@ public class RabbitMqIdentityEventPublisherAdapter implements IdentityEventPubli
         event.put("fullName", staff.getFullName());
         event.put("roleId", staff.getRoleId());
         event.put("organizerId", staff.getOrganizerId());
-        
+
         log.info("Publishing StaffCreated event for user: {}", staff.getEmail());
-        
+
         rabbitTemplate.convertAndSend(
                 RabbitMqConfig.IDENTITY_EXCHANGE,
                 "identity.staff.created",
+                event
+        );
+    }
+
+    @Override
+    public void publishEmailVerificationRequested(User user, String rawToken) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", "EmailVerificationRequested");
+        event.put("userId", user.getUserId());
+        event.put("email", user.getEmail());
+        event.put("fullName", user.getFullName());
+        event.put("token", rawToken);
+
+        log.info("Publishing EmailVerificationRequested event for user: {}", user.getEmail());
+
+        rabbitTemplate.convertAndSend(
+                RabbitMqConfig.IDENTITY_EXCHANGE,
+                "identity.email.verification.requested",
+                event
+        );
+    }
+
+    @Override
+    public void publishPasswordRecoveryRequested(User user, String rawToken) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", "PasswordRecoveryRequested");
+        event.put("userId", user.getUserId());
+        event.put("email", user.getEmail());
+        event.put("fullName", user.getFullName());
+        event.put("token", rawToken);
+
+        log.info("Publishing PasswordRecoveryRequested event for user: {}", user.getEmail());
+
+        rabbitTemplate.convertAndSend(
+                RabbitMqConfig.IDENTITY_EXCHANGE,
+                "identity.password.recovery.requested",
                 event
         );
     }

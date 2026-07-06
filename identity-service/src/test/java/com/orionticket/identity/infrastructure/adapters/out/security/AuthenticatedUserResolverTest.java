@@ -24,15 +24,14 @@ class AuthenticatedUserResolverTest {
     }
 
     @Test
-    void currentUserUsesSubjectAsOrganizerIdWhenOrganizerClaimIsMissing() {
+    void currentUserThrowsAccessDeniedWhenOrganizerClaimIsMissingForOrganizerRole() {
+        // Fase 5: se eliminó el fallback userId → organizerId. Si el rol es
+        // ORGANIZER y falta el claim organizerId, se lanza AccessDeniedException.
         UUID userId = UUID.randomUUID();
         authenticate(jwt(userId, "ORGANIZER", null));
 
-        AuthenticatedUser currentUser = new AuthenticatedUserResolver().currentUser();
-
-        assertEquals(userId, currentUser.userId());
-        assertEquals("ORGANIZER", currentUser.role());
-        assertEquals(userId, currentUser.organizerId());
+        assertThrows(AccessDeniedException.class,
+                () -> new AuthenticatedUserResolver().currentUser());
     }
 
     @Test

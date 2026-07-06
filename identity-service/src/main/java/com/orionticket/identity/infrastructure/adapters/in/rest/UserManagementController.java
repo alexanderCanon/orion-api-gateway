@@ -4,6 +4,9 @@ import com.orionticket.identity.application.port.in.UserManagementUseCase;
 import com.orionticket.identity.domain.model.User;
 import com.orionticket.identity.infrastructure.adapters.out.security.AuthenticatedUserResolver;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.UpdateRoleRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.UpdateUserRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.CreateUserRequest;
+import com.orionticket.identity.infrastructure.adapters.in.rest.dto.UpdateStatusRequest;
 import com.orionticket.identity.infrastructure.adapters.in.rest.dto.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -11,12 +14,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/v1/users")
@@ -70,16 +73,16 @@ public class UserManagementController {
             @ApiResponse(responseCode = "409", description = "Email already exists")
     })
     @PostMapping
-    public ResponseEntity<UserResponse> createUser(@Valid @RequestBody com.orionticket.identity.infrastructure.adapters.in.rest.dto.CreateUserRequest request) {
+    public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         User user = userManagementUseCase.createUser(
-                request.getEmail(), 
-                passwordEncoder.encode(request.getPassword()), 
-                request.getFullName(), 
-                request.getPhone(), 
-                request.getRoleId(), 
-                request.getOrganizerId(), 
+                request.getEmail(),
+                passwordEncoder.encode(request.getPassword()),
+                request.getFullName(),
+                request.getPhone(),
+                request.getRoleId(),
+                request.getOrganizerId(),
                 authenticatedUserResolver.currentUser().userId());
-        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(mapToResponse(user));
+        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(user));
     }
 
     @Operation(summary = "Update user profile", description = "Updates mutable user profile fields.")
@@ -91,30 +94,26 @@ public class UserManagementController {
     @PutMapping("/{userId}")
     public ResponseEntity<UserResponse> updateUser(
             @PathVariable UUID userId,
-            @Valid @RequestBody com.orionticket.identity.infrastructure.adapters.in.rest.dto.UpdateUserRequest request) {
+            @Valid @RequestBody UpdateUserRequest request) {
         User updatedUser = userManagementUseCase.updateUser(userId, request.getFullName(), request.getPhone(), authenticatedUserResolver.currentUser().userId());
         return ResponseEntity.ok(mapToResponse(updatedUser));
     }
 
-    @Operation(summary = "Update user status", description = "Updates user status for administrative workflows.")
+    @Operation(summary = "Update user status", description = "Updates the status of a user account (ACTIVE, SUSPENDED, UNVERIFIED) with domain-validated transitions and real persistence.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Status updated"),
+            @ApiResponse(responseCode = "400", description = "Invalid status or transition"),
+            @ApiResponse(responseCode = "404", description = "User not found")
+    })
     @PatchMapping("/{userId}/status")
     public ResponseEntity<UserResponse> updateUserStatus(
             @PathVariable UUID userId,
-            @RequestBody Map<String, String> statusUpdate) {
-        // En una implementación final, esto llamaría a un método específico de 'approve' o 'suspend'
-        // Por ahora, simularemos la activación para la US-003
-        User user = userManagementUseCase.getAllUsers().stream()
-                .filter(u -> u.getUserId().equals(userId))
-                .findFirst()
-                .orElseThrow(() -> new com.orionticket.identity.domain.exception.UserNotFoundException("Usuario no encontrado"));
-        
-        String newStatus = statusUpdate.get("status");
-        if ("ACTIVE".equals(newStatus) || "APPROVED".equals(newStatus)) {
-            // Nota: En un sistema real usaríamos un puerto de salida para persistir el cambio
-            // Para la prueba de Postman, lo simularemos devolviendo el usuario como activo
-            user.setStatus("ACTIVE");
-        }
-        return ResponseEntity.ok(mapToResponse(user));
+            @Valid @RequestBody UpdateStatusRequest request) {
+        User updatedUser = userManagementUseCase.updateUserStatus(
+                userId,
+                request.getStatus(),
+                authenticatedUserResolver.currentUser().userId());
+        return ResponseEntity.ok(mapToResponse(updatedUser));
     }
 
     private UserResponse mapToResponse(User user) {

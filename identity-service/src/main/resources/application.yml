@@ -4,11 +4,18 @@ spring:
     datasource:
         url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5000}/${GLOBAL_DB_NAME:orionticketdb}
         username: ${GLOBAL_DB_USER:app_user}
-        password: ${GLOBAL_DB_PASSWORD:AppSecret789}
+        # Sin default: el servicio falla al arrancar si falta la contraseña.
+        # Los valores de desarrollo se proveen vía application-lab.yml o .env local.
+        password: ${GLOBAL_DB_PASSWORD}
         driver-class-name: org.postgresql.Driver
         hikari:
             minimum-idle: 10
             connection-init-sql: SET search_path TO ${DB_SCHEMA:identity}
+    # Nota de seguridad: los defaults de credenciales sensibles (DB password,
+    # RabbitMQ user/password) NO deben existir en este archivo base. El perfil
+    # 'lab' (application-lab.yml) o variables de entorno locales proveen los
+    # valores de desarrollo. En prod, el servicio debe fallar al arrancar si
+    # falta un secreto obligatorio (ver application-prod.yml).
     jpa:
         hibernate:
             ddl-auto: validate
@@ -41,6 +48,54 @@ logging:
         root: INFO
         com.orionticket: DEBUG
         org.springframework.security: DEBUG
+
+# TTL de tokens (Fase 1 del plan de seguridad):
+#   - access token: 15 min (corto, irrevocable por naturaleza del JWT)
+#   - refresh token: 30 días (rotativo, revocable, persistido hasheado)
+# En prod estos valores deben venir de variables de entorno.
+#
+# Fase 5.4 — Rotación de claves JWT:
+#   Modo simple (backward-compat): jwt.private-key / jwt.public-key / jwt.key-id
+#   Modo rotación: jwt.keys[] con kid, private-key, public-key, active
+#
+# Procedimiento de rotación sin downtime:
+#   1. Agregar clave nueva al final de jwt.keys[] con active: false
+#   2. Esperar ≥ TTL del access token (15 min)
+#   3. Marcar clave nueva como active: true, vieja como active: false. Reiniciar.
+#   4. Esperar a que todos los tokens firmados con la clave vieja expiren.
+#   5. Remover la clave vieja de jwt.keys[].
+jwt:
+    expiration: ${JWT_EXPIRATION:900}
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:2592000}
+    # Modo simple (backward-compat) — usado si jwt.keys[] está vacío.
+    # En prod, estas variables deben venir de secrets (Vault, K8s secrets, etc.).
+    private-key: ${JWT_PRIVATE_KEY:}
+    public-key: ${JWT_PUBLIC_KEY:}
+    key-id: ${JWT_KEY_ID:orionticket-local-key}
+    issuer: ${JWT_ISSUER:orionticket-identity}
+    # Modo rotación — lista de claves. Dejar vacío para modo simple.
+    # keys:
+    #   - kid: orion-key-2026-01
+    #     private-key: ${JWT_KEY_2026_01_PRIVATE:}
+    #     public-key: ${JWT_KEY_2026_01_PUBLIC:}
+    #     active: true
+    #   - kid: orion-key-2025-12
+    #     private-key: ${JWT_KEY_2025_12_PRIVATE:}
+    #     public-key: ${JWT_KEY_2025_12_PUBLIC:}
+    #     active: false
+
+# Fase 2 (C4): Rate limiting por IP — defensa en profundidad contra fuerza
+# bruta. El rate limiting principal debe vivir en el gateway (Traefik);
+# esto complementa a nivel de servicio. Bucket token-bucket en memoria.
+security:
+    rate-limit:
+        capacity: ${RATE_LIMIT_CAPACITY:10}
+        refill-minutes: ${RATE_LIMIT_REFILL_MINUTES:1}
+    # Fase 3 (C2): TTLs de tokens de un solo uso.
+    #   - verification: 24h (link de verificación de email)
+    #   - recovery: 1h (link de reset de contraseña)
+    verification-token-ttl: ${VERIFICATION_TOKEN_TTL:86400}
+    recovery-token-ttl: ${RECOVERY_TOKEN_TTL:3600}
 
 management:
     endpoints:
